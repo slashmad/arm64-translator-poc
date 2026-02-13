@@ -1,0 +1,14 @@
+# Build artifacts
+/tiny_dbt
+/tiny_dbt_runtime.o
+/runtime_api_demo
+
+# Generated helper tools
+/scripts/*_tool
+
+# Generated reports
+/reports/
+
+# Local temp outputs
+*.log
+*.tmp
