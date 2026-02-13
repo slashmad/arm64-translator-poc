@@ -12,3 +12,6 @@
 # Local temp outputs
 *.log
 *.tmp
+
+# Local SSH deploy keys
+/.deploy_keys/
