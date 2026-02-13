@@ -110,3 +110,7 @@ Main missing pieces for that goal include:
 - `tiny_dbt_runtime_emit.inc.c`: translator/emit logic.
 - `tiny_dbt_runtime_api.inc.c`: runtime API implementation details.
 - `NEXT_STEPS_ANDROID.md`: roadmap notes.
+
+## Contributing
+
+See `CONTRIBUTING.md`.
