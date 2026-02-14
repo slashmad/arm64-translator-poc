@@ -3,6 +3,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -101,7 +102,10 @@ enum {
     IMPORT_CB_GUEST_STRCHR_X0_X1 = 0x5E,
     IMPORT_CB_GUEST_STRRCHR_X0_X1 = 0x5F,
     IMPORT_CB_GUEST_STRSTR_X0_X1 = 0x60,
-    IMPORT_CB_GUEST_MEMCHR_X0_X1_X2 = 0x61
+    IMPORT_CB_GUEST_MEMCHR_X0_X1_X2 = 0x61,
+    IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2 = 0x62,
+    IMPORT_CB_GUEST_ATOI_X0 = 0x63,
+    IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64
 };
 
 struct TinyDbt {
@@ -164,6 +168,9 @@ static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req,
 static bool guest_mem_range_valid(uint64_t addr, uint64_t len);
 static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b_addr, uint64_t limit, bool bounded);
 static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t max_len, bool *out_terminated);
+static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end);
+static bool guest_ascii_isspace(uint8_t ch);
+static int guest_digit_value(uint8_t ch);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -334,6 +341,111 @@ static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t m
         }
     }
     return max_len;
+}
+
+static bool guest_ascii_isspace(uint8_t ch) {
+    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' || ch == '\f' || ch == '\v';
+}
+
+static int guest_digit_value(uint8_t ch) {
+    if (ch >= '0' && ch <= '9') {
+        return (int)(ch - '0');
+    }
+    if (ch >= 'a' && ch <= 'z') {
+        return 10 + (int)(ch - 'a');
+    }
+    if (ch >= 'A' && ch <= 'Z') {
+        return 10 + (int)(ch - 'A');
+    }
+    return -1;
+}
+
+static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end) {
+    uint64_t p = 0;
+    int sign = 1;
+    int base = 0;
+    uint64_t acc = 0;
+    uint64_t max_mag = 0;
+    bool any = false;
+
+    if (!mem || !out_value || !out_end || addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+
+    *out_value = 0;
+    *out_end = addr;
+    p = addr;
+
+    while (p < (uint64_t)GUEST_MEM_SIZE && guest_ascii_isspace(mem[(size_t)p])) {
+        p++;
+    }
+
+    if (p < (uint64_t)GUEST_MEM_SIZE) {
+        if (mem[(size_t)p] == '-') {
+            sign = -1;
+            p++;
+        } else if (mem[(size_t)p] == '+') {
+            p++;
+        }
+    }
+
+    base = base_arg;
+    if (base == 0) {
+        base = 10;
+        if (p < (uint64_t)GUEST_MEM_SIZE && mem[(size_t)p] == '0') {
+            base = 8;
+            if (p + 1 < (uint64_t)GUEST_MEM_SIZE &&
+                (mem[(size_t)(p + 1)] == 'x' || mem[(size_t)(p + 1)] == 'X') &&
+                p + 2 < (uint64_t)GUEST_MEM_SIZE && guest_digit_value(mem[(size_t)(p + 2)]) >= 0 &&
+                guest_digit_value(mem[(size_t)(p + 2)]) < 16) {
+                base = 16;
+                p += 2;
+            }
+        }
+    } else if (base == 16 && p + 1 < (uint64_t)GUEST_MEM_SIZE && mem[(size_t)p] == '0' &&
+               (mem[(size_t)(p + 1)] == 'x' || mem[(size_t)(p + 1)] == 'X')) {
+        p += 2;
+    }
+
+    if (base < 2 || base > 36) {
+        *out_end = addr;
+        return true;
+    }
+
+    max_mag = (sign < 0) ? ((uint64_t)INT64_MAX + 1u) : (uint64_t)INT64_MAX;
+    while (p < (uint64_t)GUEST_MEM_SIZE) {
+        int dv = guest_digit_value(mem[(size_t)p]);
+        uint64_t u_dv = 0;
+        if (dv < 0 || dv >= base) {
+            break;
+        }
+        u_dv = (uint64_t)dv;
+        any = true;
+        if (acc <= (max_mag - u_dv) / (uint64_t)base) {
+            acc = acc * (uint64_t)base + u_dv;
+        } else {
+            acc = max_mag; /* saturate in PoC mode */
+        }
+        p++;
+    }
+
+    if (!any) {
+        *out_end = addr;
+        *out_value = 0;
+        return true;
+    }
+
+    *out_end = p;
+    if (sign < 0) {
+        if (acc == (uint64_t)INT64_MAX + 1u) {
+            *out_value = INT64_MIN;
+        } else {
+            *out_value = -(int64_t)acc;
+        }
+    } else {
+        *out_value = (int64_t)acc;
+    }
+    return true;
 }
 
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
@@ -694,6 +806,45 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 }
             }
             return 0;
+        }
+        case IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2: {
+            uint64_t addr = state->x[0];
+            uint8_t needle = (uint8_t)(state->x[1] & 0xFFu);
+            uint64_t len = state->x[2];
+
+            if (!g_tiny_dbt_current_guest_mem || len == 0 || !guest_mem_range_valid(addr, len)) {
+                return 0;
+            }
+            for (uint64_t i = len; i > 0; --i) {
+                uint64_t off = i - 1;
+                if (g_tiny_dbt_current_guest_mem[(size_t)(addr + off)] == needle) {
+                    return addr + off;
+                }
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_ATOI_X0: {
+            int64_t value = 0;
+            uint64_t end_addr = state->x[0];
+            if (!g_tiny_dbt_current_guest_mem ||
+                !guest_parse_strtol(g_tiny_dbt_current_guest_mem, state->x[0], 10, &value, &end_addr)) {
+                return 0;
+            }
+            return (uint64_t)value;
+        }
+        case IMPORT_CB_GUEST_STRTOL_X0_X1_X2: {
+            int64_t value = 0;
+            uint64_t end_addr = state->x[0];
+            uint64_t endptr_addr = state->x[1];
+            int base = (int)(state->x[2] & 0xFFFFFFFFu);
+            if (!g_tiny_dbt_current_guest_mem ||
+                !guest_parse_strtol(g_tiny_dbt_current_guest_mem, state->x[0], base, &value, &end_addr)) {
+                return 0;
+            }
+            if (endptr_addr != 0 && guest_mem_range_valid(endptr_addr, sizeof(uint64_t))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)endptr_addr, &end_addr, sizeof(end_addr));
+            }
+            return (uint64_t)value;
         }
         default:
             return 0;
