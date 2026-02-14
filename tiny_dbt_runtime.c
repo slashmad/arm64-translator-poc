@@ -100,7 +100,8 @@ enum {
     IMPORT_CB_GUEST_STRNCPY_X0_X1_X2 = 0x5D,
     IMPORT_CB_GUEST_STRCHR_X0_X1 = 0x5E,
     IMPORT_CB_GUEST_STRRCHR_X0_X1 = 0x5F,
-    IMPORT_CB_GUEST_STRSTR_X0_X1 = 0x60
+    IMPORT_CB_GUEST_STRSTR_X0_X1 = 0x60,
+    IMPORT_CB_GUEST_MEMCHR_X0_X1_X2 = 0x61
 };
 
 struct TinyDbt {
@@ -675,6 +676,21 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 const uint8_t *needle = g_tiny_dbt_current_guest_mem + (size_t)needle_addr;
                 if (memcmp(hay, needle, (size_t)needle_len) == 0) {
                     return hay_addr + pos;
+                }
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_MEMCHR_X0_X1_X2: {
+            uint64_t addr = state->x[0];
+            uint8_t needle = (uint8_t)(state->x[1] & 0xFFu);
+            uint64_t len = state->x[2];
+
+            if (!g_tiny_dbt_current_guest_mem || len == 0 || !guest_mem_range_valid(addr, len)) {
+                return 0;
+            }
+            for (uint64_t i = 0; i < len; ++i) {
+                if (g_tiny_dbt_current_guest_mem[(size_t)(addr + i)] == needle) {
+                    return addr + i;
                 }
             }
             return 0;
