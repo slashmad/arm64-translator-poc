@@ -19,7 +19,7 @@ CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: run-lslv64-example run-lsrv64-example run-asrv64-example run-rorv64-example run-lslv32-example run-lsrv32-example run-asrv32-example run-rorv32-example run-extr64-example run-extr32-example run-ror64-imm-example run-ror32-imm-example
 .PHONY: run-sbfm32-asr-example run-sbfm64-asr-example run-bfm64-lowbyte-example run-bfm64-insert-byte-example run-bfm32-lowbyte-example run-bfm32-insert-byte-example
 .PHONY: run-regoff32-uxtw-example run-regoff32-lsl-example run-regoff32-sxtw-neg-example run-regoff64-uxtw-example run-regoff64-lsl-example run-regoff64-sxtw-neg-example run-regoff8-uxth-example run-regoff8-lsl-example run-regoff8-sxtw-neg-example run-regoff8-alt-example run-regoff16-uxth-example run-regoff16-lsl-example run-regoff16-sxtw-neg-example run-regoff16-alt-example
-.PHONY: run-ldrstrq-example run-ldurq-example run-postidx-strq-example run-preidx-ldrq-example run-ldpstpq-example run-stpldpq-postpre-example run-neon-and16b-example run-neon-bic16b-example run-neon-orr16b-example run-neon-eor16b-example run-neon-eor8b-zero-upper-example run-neon-movi16b-example run-neon-movi8b-example run-neon-movi8b-zero-upper-example run-neon-movi2d-zero-example run-neon-movi2d-ones-example run-neon-sqrdmlah2s-example run-neon-sqrdmlah4s-example
+.PHONY: run-ldrstrq-example run-ldurq-example run-postidx-strq-example run-preidx-ldrq-example run-postidx-strd-example run-preidx-ldrd-example run-postidx-strs-example run-preidx-ldrs-example run-sturldur-d-unscaled-example run-sturldur-s-unscaled-example run-ldpstpq-example run-stpldpq-postpre-example run-neon-and16b-example run-neon-bic16b-example run-neon-orr16b-example run-neon-eor16b-example run-neon-eor8b-zero-upper-example run-neon-movi16b-example run-neon-movi8b-example run-neon-movi8b-zero-upper-example run-neon-movi2d-zero-example run-neon-movi2d-ones-example run-neon-sqrdmlah2s-example run-neon-sqrdmlah4s-example run-neon-sqrdmlsh2s-example run-neon-sqrdmlsh4s-example
 .PHONY: run-strxzr-imm-example run-strwzr-imm-example run-ldrxzr-imm-discard-example run-ldrwzr-imm-discard-example run-sturxzr-example run-sturwzr-example run-postidx-str64-xzr-source-example run-postidx-str32-wzr-source-example run-regoff64-str-xzr-source-example run-regoff32-str-wzr-source-example
 .PHONY: run-stp64-zr-source-offset-example run-stp32-zr-source-offset-example run-ldp64-zr-discard-offset-example run-ldp32-zr-discard-offset-example run-stp64-zr-source-postpre-example run-stp32-zr-source-postpre-example
 .PHONY: run-cbz32-example run-cbnz32-example run-cbz32-wzr-example run-cbnz32-wzr-example
@@ -31,7 +31,7 @@ CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: run-swp64-sp-base-example run-ldadd64-sp-base-example run-cas64-success-sp-base-example run-cas64-fail-sp-base-example run-casp64-success-sp-base-example run-casp64-fail-sp-base-example
 .PHONY: run-spill-ldxr-stxr64-sp-base-example run-spill-stxr64-fail-sp-base-example run-spill-ldaxr-stlxr64-sp-base-example run-spill-stlxr64-fail-sp-base-example run-spill-ldar-stlr64-sp-base-example run-spill-ldar-stlr32-sp-base-example run-spill-swp64-sp-base-example run-spill-ldadd64-sp-base-example run-spill-cas64-success-sp-base-example run-spill-cas64-fail-sp-base-example run-spill-casp64-success-sp-base-example run-spill-casp64-fail-sp-base-example
 .PHONY: run-spill-casa64-success-sp-base-example run-spill-casl64-fail-sp-base-example run-spill-casal32-rtx0-sp-base-example run-spill-casb-success-sp-base-example run-spill-caslb-fail-sp-base-example run-spill-casah-success-sp-base-example
-.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example
+.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example
 
 all: tiny_dbt
 
@@ -592,6 +592,12 @@ run-scvtf-fcvtzs64-example: tiny_dbt
 run-ucvtf-fcvtzu64-example: tiny_dbt
 	./tiny_dbt D2800540 9E630001 9E790020 D65F03C0
 
+run-ucvtf-fcvtzu64-high-example: tiny_dbt
+	./tiny_dbt D2F00000 9E630001 9E790020 D65F03C0
+
+run-ucvtf-fcvtzu32-high-example: tiny_dbt
+	./tiny_dbt 52B00000 1E230001 1E390020 D65F03C0
+
 run-fccmpd-true-lt-example: tiny_dbt
 	./tiny_dbt --mem-write 0x0:000000000000F03F000000000000000000000000000000400000000000000000 D2800001 EB01003F 3DC00021 3DC00422 1E620424 5400006B D2800000 D65F03C0 D2800020 D65F03C0
 
@@ -618,6 +624,89 @@ run-elf-symbol-example: tiny_dbt
 	@lib=/tmp/tiny_dbt_libmain.so; \
 	unzip -p /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libmain.so > $$lib; \
 	./tiny_dbt --elf-file $$lib --elf-symbol JNI_OnLoad
+
+run-elf-branch-trampoline-example: tiny_dbt
+	@lib=/tmp/tiny_dbt_libcrash_trampoline.so; \
+	unzip -p /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libcrashlytics-trampoline.so > $$lib; \
+	./tiny_dbt --set-reg sp=0x8000 --elf-file $$lib --elf-symbol main
+
+run-elf-import-stub-example: tiny_dbt
+	@lib=/tmp/tiny_dbt_libcrash_trampoline.so; \
+	unzip -p /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libcrashlytics-trampoline.so > $$lib; \
+	./tiny_dbt --set-reg sp=0x8000 --elf-file $$lib --elf-symbol main \
+		--elf-import-stub __libc_init=11 --elf-import-stub __cxa_atexit=22 \
+		--elf-import-stub dlopen=33 --elf-import-stub dlsym=44 \
+		--elf-import-stub dlerror=55 --elf-import-stub __android_log_print=66
+
+run-elf-import-callback-example: tiny_dbt
+	@lib=/tmp/tiny_dbt_libcrash_trampoline.so; \
+	unzip -p /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libcrashlytics-trampoline.so > $$lib; \
+	./tiny_dbt --set-reg sp=0x8000 --set-reg x1=0x1234 --elf-file $$lib --elf-symbol main \
+		--elf-import-callback __libc_init=ret_x1 --elf-import-callback __cxa_atexit=add_x0_x1 \
+		--elf-import-callback dlopen=nonnull_x0 --elf-import-callback dlsym=ret_sp \
+		--elf-import-callback dlerror=sub_x0_x1 --elf-import-callback __android_log_print=ret_x0
+
+run-elf-import-trace-example: tiny_dbt
+	@lib=/tmp/tiny_dbt_libcrash_trampoline.so; \
+	trace=/tmp/tiny_dbt_import_trace.log; \
+	rm -f $$trace; \
+	unzip -p /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libcrashlytics-trampoline.so > $$lib; \
+	./tiny_dbt --set-reg sp=0x8000 --elf-file $$lib --elf-symbol main \
+		--elf-import-stub dlsym=44 --elf-import-callback __android_log_print=ret_x0 \
+		--elf-import-trace $$trace; \
+	echo "trace file: $$trace"; \
+	cat $$trace
+
+run-import-callback-retx1-example: tiny_dbt
+	./tiny_dbt --set-reg x1=0x12345678 D454A220 D65F03C0
+
+run-import-callback-add-example: tiny_dbt
+	./tiny_dbt --set-reg x0=2 --set-reg x1=40 D454A400 D65F03C0
+
+run-import-callback-sp-example: tiny_dbt
+	./tiny_dbt --set-reg sp=0x8888 D454A600 D65F03C0
+
+run-import-callback-alloc-example: tiny_dbt
+	./tiny_dbt --set-reg x0=32 D454AA00 D65F03C0
+
+run-import-callback-free-example: tiny_dbt
+	./tiny_dbt --set-reg x0=4096 --set-reg heap_base=4096 --set-reg heap_brk=4112 --set-reg heap_last_ptr=4096 --set-reg heap_last_size=16 D454AA20 D65F03C0
+
+run-import-callback-alloc-free-example: tiny_dbt
+	./tiny_dbt --set-reg x0=32 D454AA00 D454AA20 D65F03C0
+
+run-import-callback-calloc-example: tiny_dbt
+	./tiny_dbt --set-reg x0=4 --set-reg x1=8 D454AA40 D65F03C0
+
+run-import-callback-calloc-zero-example: tiny_dbt
+	./tiny_dbt --set-reg x0=1 --set-reg x1=8 --mem-write 0x1000:FFFFFFFFFFFFFFFF D454AA40 F9400000 D65F03C0
+
+run-import-callback-realloc-example: tiny_dbt
+	./tiny_dbt --set-reg x0=4096 --set-reg x1=32 --set-reg heap_base=4096 --set-reg heap_brk=4112 --set-reg heap_last_ptr=4096 --set-reg heap_last_size=16 D454AA60 D454AA20 D65F03C0
+
+run-import-callback-realloc-null-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0 --set-reg x1=32 D454AA60 D65F03C0
+
+run-import-callback-memcpy-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=0x20 --set-reg x2=8 --mem-write 0x20:1122334455667788 --mem-read 0x40:8 D454AA80 D65F03C0
+
+run-import-callback-memset-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=0xAB --set-reg x2=8 --mem-read 0x40:8 D454AAA0 D65F03C0
+
+run-import-callback-memcmp-eq-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x30 --set-reg x2=8 --mem-write 0x20:1122334455667788 --mem-write 0x30:1122334455667788 D454AAC0 D65F03C0
+
+run-import-callback-memcmp-ne-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x30 --set-reg x2=8 --mem-write 0x20:1122334455667788 --mem-write 0x30:1022334455667788 D454AAC0 D65F03C0
+
+run-import-callback-memmove-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x24 --set-reg x1=0x20 --set-reg x2=8 --mem-write 0x20:1122334455667788 --mem-read 0x24:8 D454AAE0 D65F03C0
+
+run-import-callback-strnlen-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=16 --mem-write 0x40:48656C6C6F00 D454AB00 D65F03C0
+
+run-import-callback-strnlen-max-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=4 --mem-write 0x40:41424344 D454AB00 D65F03C0
 
 run-orrreg64-zr-alias-example: tiny_dbt
 	./tiny_dbt D2800541 AA0103E0 D65F03C0
@@ -1030,6 +1119,9 @@ run-sturwzr-example: tiny_dbt
 run-ldursw-example: tiny_dbt
 	./tiny_dbt D2800001 D29FFFE0 F2BFFFE0 B9000420 D2800000 B9800420 D65F03C0
 
+run-ldursw-unscaled-example: tiny_dbt
+	./tiny_dbt D2800001 D29FFFE0 F2BFFFE0 B8004020 D2800000 B8804020 D65F03C0
+
 run-ldur-neg-example: tiny_dbt
 	./tiny_dbt D2800101 D2800540 F81F8020 D2800000 F85F8020 D65F03C0
 
@@ -1041,6 +1133,9 @@ run-ldp-example: tiny_dbt
 
 run-ldp32-example: tiny_dbt
 	./tiny_dbt D2800001 D28000A0 D28004A2 29000820 29401023 8B040060 D65F03C0
+
+run-ldpd-offset-example: tiny_dbt
+	./tiny_dbt D2800001 D2801540 D2800202 9E670000 9E670041 6D010420 6D410C22 9E660040 9E660062 8B020000 D65F03C0
 
 run-stp64-zr-source-offset-example: tiny_dbt
 	./tiny_dbt D2800001 D28000A0 D28004A2 A9007C3F D2800003 D2800004 A9401023 8B040060 D65F03C0
@@ -1056,6 +1151,30 @@ run-ldp32-zr-discard-offset-example: tiny_dbt
 
 run-ldrstrq-example: tiny_dbt
 	./tiny_dbt --mem-write 0x0:88776655443322110011223344556677 D2800001 3DC00020 3D800420 F9400820 D65F03C0
+
+run-ldrstrd-example: tiny_dbt
+	./tiny_dbt D2800001 D2800540 9E670001 FD000421 FD400422 9E660040 D65F03C0
+
+run-ldrstrs-example: tiny_dbt
+	./tiny_dbt D2800001 528ACF00 72A24680 1E270001 BD000421 BD400422 1E260040 D65F03C0
+
+run-postidx-strd-example: tiny_dbt
+	./tiny_dbt D2800001 D2800540 9E670000 FC008420 D2800000 FC5F8C21 9E660020 D65F03C0
+
+run-preidx-ldrd-example: tiny_dbt
+	./tiny_dbt D2800101 D2800540 9E670000 FC1F8020 D2800000 FC5F8C21 9E660020 D65F03C0
+
+run-postidx-strs-example: tiny_dbt
+	./tiny_dbt D2800001 528ACF00 72A24680 1E270000 BC004420 52800000 BC5FCC21 1E260020 D65F03C0
+
+run-preidx-ldrs-example: tiny_dbt
+	./tiny_dbt D2800081 528ACF00 72A24680 1E270000 BC1FC020 52800000 BC5FCC21 1E260020 D65F03C0
+
+run-sturldur-d-unscaled-example: tiny_dbt
+	./tiny_dbt D2800001 D2800540 9E670000 FC008020 D2800000 FC408021 9E660020 D65F03C0
+
+run-sturldur-s-unscaled-example: tiny_dbt
+	./tiny_dbt D2800001 528ACF00 72A24680 1E270000 BC004020 52800000 BC404021 1E260020 D65F03C0
 
 run-ldurq-example: tiny_dbt
 	./tiny_dbt --mem-write 0x0:88776655443322110011223344556677 D2800001 3CC00020 3C810020 F9400820 D65F03C0
@@ -1107,6 +1226,12 @@ run-neon-sqrdmlah2s-example: tiny_dbt
 
 run-neon-sqrdmlah4s-example: tiny_dbt
 	./tiny_dbt --mem-write 0x0:00000040000000c0ffffff7f000000800000004000000040ffffff7f0000008001000000ffffffff7b00000085ffffff D2800001 3DC00021 3DC00422 3DC00820 6E828420 3D801020 F9402420 D65F03C0
+
+run-neon-sqrdmlsh2s-example: tiny_dbt
+	./tiny_dbt --mem-write 0x0:00000040000000c000000000000000000000004000000040000000000000000001000000ffffffff78563412f0debc9a D2800001 3DC00021 3DC00422 3DC00820 2EA28420 3D800C20 F9401820 F9401C22 8B020000 D65F03C0
+
+run-neon-sqrdmlsh4s-example: tiny_dbt
+	./tiny_dbt --mem-write 0x0:00000040000000c0ffffff7f000000800000004000000040ffffff7f0000008001000000ffffffff7b00000085ffffff D2800001 3DC00021 3DC00422 3DC00820 6EA28420 3D801020 F9402420 D65F03C0
 
 run-ldrb-example: tiny_dbt
 	./tiny_dbt D2800001 D2801560 39000C20 D2800000 39400C20 D65F03C0
@@ -1179,6 +1304,9 @@ run-ldursb-example: tiny_dbt
 
 run-ldursh-example: tiny_dbt
 	./tiny_dbt D2800001 D29FFFE0 78002020 D2800000 78C02020 D65F03C0
+
+run-ldursh32-example: tiny_dbt
+	./tiny_dbt D2800001 D29FFFE0 78002020 D2800000 78802020 D65F03C0
 
 run-ldurb-neg-example: tiny_dbt
 	./tiny_dbt D2800021 D2801560 381FF020 D2800000 385FF020 D65F03C0

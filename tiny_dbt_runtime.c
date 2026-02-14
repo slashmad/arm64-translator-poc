@@ -53,6 +53,10 @@ typedef struct {
     uint64_t unsupported_pc_index;
     uint32_t unsupported_insn;
     uint32_t unsupported_pad;
+    uint64_t heap_base;
+    uint64_t heap_brk;
+    uint64_t heap_last_ptr;
+    uint64_t heap_last_size;
 } CPUState;
 
 _Static_assert(sizeof(TinyDbtCpuState) == sizeof(CPUState), "TinyDbtCpuState layout drift");
@@ -65,6 +69,30 @@ _Static_assert(offsetof(TinyDbtCpuState, ret_ic_target) == offsetof(CPUState, re
 
 enum {
     TINY_DBT_ERROR_CAP = 256
+};
+
+enum {
+    IMPORT_CB_RET_X0 = 0x10,
+    IMPORT_CB_RET_X1 = 0x11,
+    IMPORT_CB_RET_X2 = 0x12,
+    IMPORT_CB_RET_X3 = 0x13,
+    IMPORT_CB_RET_X4 = 0x14,
+    IMPORT_CB_RET_X5 = 0x15,
+    IMPORT_CB_RET_X6 = 0x16,
+    IMPORT_CB_RET_X7 = 0x17,
+    IMPORT_CB_ADD_X0_X1 = 0x20,
+    IMPORT_CB_SUB_X0_X1 = 0x21,
+    IMPORT_CB_RET_SP = 0x30,
+    IMPORT_CB_NONNULL_X0 = 0x40,
+    IMPORT_CB_GUEST_ALLOC_X0 = 0x50,
+    IMPORT_CB_GUEST_FREE_X0 = 0x51,
+    IMPORT_CB_GUEST_CALLOC_X0_X1 = 0x52,
+    IMPORT_CB_GUEST_REALLOC_X0_X1 = 0x53,
+    IMPORT_CB_GUEST_MEMCPY_X0_X1_X2 = 0x54,
+    IMPORT_CB_GUEST_MEMSET_X0_X1_X2 = 0x55,
+    IMPORT_CB_GUEST_MEMCMP_X0_X1_X2 = 0x56,
+    IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2 = 0x57,
+    IMPORT_CB_GUEST_STRNLEN_X0_X1 = 0x58
 };
 
 struct TinyDbt {
@@ -121,6 +149,16 @@ typedef struct {
 static void patch_rel32_at(uint8_t *out, size_t imm_off, size_t target_off);
 static void emit_preserve_guest_flags_begin(CodeBuf *cb);
 static void emit_preserve_guest_flags_end(CodeBuf *cb);
+static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id);
+static bool guest_heap_alloc(CPUState *state, uint64_t req, uint64_t *out_ptr, uint64_t *out_size);
+static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req, uint64_t *out_ptr);
+static bool guest_mem_range_valid(uint64_t addr, uint64_t len);
+
+/*
+ * Current runtime guest memory pointer used by host import callbacks.
+ * Thread-local keeps nested/parallel runtimes isolated.
+ */
+static _Thread_local uint8_t *g_tiny_dbt_current_guest_mem = NULL;
 
 static void tiny_dbt_set_error(TinyDbt *dbt, const char *fmt, ...) {
     if (!dbt) {
@@ -137,3 +175,287 @@ static void tiny_dbt_set_error(TinyDbt *dbt, const char *fmt, ...) {
 #include "tiny_dbt_runtime_helpers.inc.c"
 #include "tiny_dbt_runtime_decode.inc.c"
 #include "tiny_dbt_runtime_api.inc.c"
+
+static bool guest_heap_alloc(CPUState *state, uint64_t req, uint64_t *out_ptr, uint64_t *out_size) {
+    uint64_t base = 0;
+    uint64_t brk = 0;
+    uint64_t size = 0;
+    uint64_t ptr = 0;
+
+    if (!state || !out_ptr || !out_size) {
+        return false;
+    }
+    if (req == 0) {
+        return false;
+    }
+    if (req > UINT64_MAX - 15u) {
+        return false;
+    }
+
+    base = state->heap_base ? state->heap_base : 0x1000u;
+    if (base >= (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+
+    brk = state->heap_brk;
+    if (brk < base) {
+        brk = base;
+    }
+
+    size = (req + 15u) & ~15ull; /* 16-byte alignment */
+    if (size == 0) {
+        return false;
+    }
+    if (brk > (uint64_t)GUEST_MEM_SIZE || size > (uint64_t)GUEST_MEM_SIZE - brk) {
+        return false;
+    }
+
+    ptr = brk;
+    brk += size;
+    state->heap_base = base;
+    state->heap_brk = brk;
+    state->heap_last_ptr = ptr;
+    state->heap_last_size = size;
+    *out_ptr = ptr;
+    *out_size = size;
+    return true;
+}
+
+static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req, uint64_t *out_ptr) {
+    uint64_t size = 0;
+    uint64_t old_size = 0;
+    uint64_t brk = 0;
+    uint64_t new_brk = 0;
+
+    if (!state || !out_ptr) {
+        return false;
+    }
+    if (ptr == 0 || req == 0) {
+        return false;
+    }
+    if (ptr != state->heap_last_ptr || state->heap_last_size == 0) {
+        return false;
+    }
+
+    old_size = state->heap_last_size;
+    brk = state->heap_brk;
+    if (old_size > UINT64_MAX - ptr || ptr + old_size != brk) {
+        return false;
+    }
+    if (req > UINT64_MAX - 15u) {
+        return false;
+    }
+    size = (req + 15u) & ~15ull; /* 16-byte alignment */
+    if (size == 0) {
+        return false;
+    }
+    if (ptr > UINT64_MAX - size) {
+        return false;
+    }
+    new_brk = ptr + size;
+    if (new_brk > (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+
+    state->heap_brk = new_brk;
+    state->heap_last_size = size;
+    *out_ptr = ptr;
+    return true;
+}
+
+static bool guest_mem_range_valid(uint64_t addr, uint64_t len) {
+    if (addr > (uint64_t)GUEST_MEM_SIZE || len > (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+    return addr <= (uint64_t)GUEST_MEM_SIZE - len;
+}
+
+static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
+    if (!state) {
+        return 0;
+    }
+
+    switch (callback_id) {
+        case IMPORT_CB_RET_X0:
+            return state->x[0];
+        case IMPORT_CB_RET_X1:
+            return state->x[1];
+        case IMPORT_CB_RET_X2:
+            return state->x[2];
+        case IMPORT_CB_RET_X3:
+            return state->x[3];
+        case IMPORT_CB_RET_X4:
+            return state->x[4];
+        case IMPORT_CB_RET_X5:
+            return state->x[5];
+        case IMPORT_CB_RET_X6:
+            return state->x[6];
+        case IMPORT_CB_RET_X7:
+            return state->x[7];
+        case IMPORT_CB_ADD_X0_X1:
+            return state->x[0] + state->x[1];
+        case IMPORT_CB_SUB_X0_X1:
+            return state->x[0] - state->x[1];
+        case IMPORT_CB_RET_SP:
+            return state->sp;
+        case IMPORT_CB_NONNULL_X0:
+            return state->x[0] != 0 ? 1u : 0u;
+        case IMPORT_CB_GUEST_ALLOC_X0: {
+            uint64_t ptr = 0;
+            uint64_t size = 0;
+            if (!guest_heap_alloc(state, state->x[0], &ptr, &size)) {
+                return 0;
+            }
+            return ptr;
+        }
+        case IMPORT_CB_GUEST_FREE_X0: {
+            uint64_t ptr = state->x[0];
+            if (ptr == 0) {
+                return 0;
+            }
+            if (ptr == state->heap_last_ptr && state->heap_last_size != 0 &&
+                state->heap_last_ptr + state->heap_last_size == state->heap_brk) {
+                state->heap_brk = state->heap_last_ptr;
+                state->heap_last_ptr = 0;
+                state->heap_last_size = 0;
+                return 1;
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_CALLOC_X0_X1: {
+            uint64_t count = state->x[0];
+            uint64_t elem = state->x[1];
+            uint64_t req = 0;
+            uint64_t ptr = 0;
+            uint64_t size = 0;
+
+            if (count == 0 || elem == 0) {
+                return 0;
+            }
+            if (count > UINT64_MAX / elem) {
+                return 0;
+            }
+            req = count * elem;
+            if (!guest_heap_alloc(state, req, &ptr, &size)) {
+                return 0;
+            }
+
+            if (g_tiny_dbt_current_guest_mem && ptr <= (uint64_t)GUEST_MEM_SIZE &&
+                size <= (uint64_t)GUEST_MEM_SIZE - ptr) {
+                memset(g_tiny_dbt_current_guest_mem + (size_t)ptr, 0, (size_t)size);
+            }
+            return ptr;
+        }
+        case IMPORT_CB_GUEST_REALLOC_X0_X1: {
+            uint64_t ptr = state->x[0];
+            uint64_t req = state->x[1];
+            uint64_t out = 0;
+
+            if (ptr == 0) {
+                uint64_t size = 0;
+                if (!guest_heap_alloc(state, req, &out, &size)) {
+                    return 0;
+                }
+                return out;
+            }
+            if (req == 0) {
+                if (ptr == state->heap_last_ptr && state->heap_last_size != 0 &&
+                    state->heap_last_ptr + state->heap_last_size == state->heap_brk) {
+                    state->heap_brk = state->heap_last_ptr;
+                    state->heap_last_ptr = 0;
+                    state->heap_last_size = 0;
+                }
+                return 0;
+            }
+            if (!guest_heap_realloc_last(state, ptr, req, &out)) {
+                return 0;
+            }
+            return out;
+        }
+        case IMPORT_CB_GUEST_MEMCPY_X0_X1_X2: {
+            uint64_t dst = state->x[0];
+            uint64_t src = state->x[1];
+            uint64_t len = state->x[2];
+
+            if (len == 0) {
+                return dst;
+            }
+            if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(dst, len) || !guest_mem_range_valid(src, len)) {
+                return 0;
+            }
+            memmove(g_tiny_dbt_current_guest_mem + (size_t)dst, g_tiny_dbt_current_guest_mem + (size_t)src, (size_t)len);
+            return dst;
+        }
+        case IMPORT_CB_GUEST_MEMSET_X0_X1_X2: {
+            uint64_t dst = state->x[0];
+            uint8_t value = (uint8_t)(state->x[1] & 0xFFu);
+            uint64_t len = state->x[2];
+
+            if (len == 0) {
+                return dst;
+            }
+            if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(dst, len)) {
+                return 0;
+            }
+            memset(g_tiny_dbt_current_guest_mem + (size_t)dst, value, (size_t)len);
+            return dst;
+        }
+        case IMPORT_CB_GUEST_MEMCMP_X0_X1_X2: {
+            uint64_t a_addr = state->x[0];
+            uint64_t b_addr = state->x[1];
+            uint64_t len = state->x[2];
+
+            if (len == 0) {
+                return 0;
+            }
+            if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(a_addr, len) ||
+                !guest_mem_range_valid(b_addr, len)) {
+                return 0;
+            }
+
+            const uint8_t *a = g_tiny_dbt_current_guest_mem + (size_t)a_addr;
+            const uint8_t *b = g_tiny_dbt_current_guest_mem + (size_t)b_addr;
+            for (uint64_t i = 0; i < len; ++i) {
+                if (a[i] != b[i]) {
+                    int64_t diff = (int64_t)((int)a[i] - (int)b[i]);
+                    return (uint64_t)diff;
+                }
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2: {
+            uint64_t dst = state->x[0];
+            uint64_t src = state->x[1];
+            uint64_t len = state->x[2];
+
+            if (len == 0) {
+                return dst;
+            }
+            if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(dst, len) || !guest_mem_range_valid(src, len)) {
+                return 0;
+            }
+            memmove(g_tiny_dbt_current_guest_mem + (size_t)dst, g_tiny_dbt_current_guest_mem + (size_t)src, (size_t)len);
+            return dst;
+        }
+        case IMPORT_CB_GUEST_STRNLEN_X0_X1: {
+            uint64_t addr = state->x[0];
+            uint64_t max_len = state->x[1];
+
+            if (!g_tiny_dbt_current_guest_mem || addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+
+            uint64_t avail = (uint64_t)GUEST_MEM_SIZE - addr;
+            uint64_t scan_len = max_len < avail ? max_len : avail;
+            const uint8_t *s = g_tiny_dbt_current_guest_mem + (size_t)addr;
+            for (uint64_t i = 0; i < scan_len; ++i) {
+                if (s[i] == 0) {
+                    return i;
+                }
+            }
+            return scan_len;
+        }
+        default:
+            return 0;
+    }
+}

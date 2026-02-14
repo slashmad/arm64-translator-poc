@@ -29,7 +29,7 @@
 - `stress-spill-atomics` stressar nu både `Xn`- och `SP`-bas för `SWP/LDADD`, `CAS/CASA/CASL/CASAL/CASB/CASAH` och hela `CASP`-familjen (`CASP/CASPA/CASPL/CASPAL`, 32/64).
 - AdvSIMD bitvis ALU har startats med `AND/BIC/ORR/EOR` för `Vd.{8B,16B}` (`Q=0/1`).
 - AdvSIMD immediate-stöd innehåller nu `MOVI Vd.{8B,16B}, #imm8` samt `MOVI Vd.2D` för `#0/#-1`.
-- AdvSIMD aritmetik innehåller nu `SQRDMLAH Vd.{2S,4S}, Vn.{2S,4S}, Vm.{2S,4S}`.
+- AdvSIMD aritmetik innehåller nu `SQRDMLAH/SQRDMLSH Vd.{2S,4S}, Vn.{2S,4S}, Vm.{2S,4S}`.
 - Logical shifted-register täcker nu även `ORN` (`W/X`) och `MVN`-alias (`Rn = WZR/XZR`).
 - `EXTR` (`W/X`) stöds nu, inklusive `ROR`-alias när `Rn == Rm`.
 - Conditional compare stöder nu `CCMP/CCMN` för både register- och immediate-former (`W/X`) med korrekt fallback till imm-NZCV när villkoret inte håller.
@@ -38,9 +38,15 @@
 - FP scalar ALU stöder nu `FADD/FSUB/FMUL` för `S/D`.
 - FP scalar ALU stöder nu även `FDIV` för `S/D`.
 - FP/GPR-bridge stöder nu `FMOV W<->S` och `FMOV X<->D`.
-- FP/int-konverteringar stöder nu `SCVTF/UCVTF` och `FCVTZS/FCVTZU` (PoC-approximation för högsta unsigned 64-bit intervallet).
+- FP/int-konverteringar stöder nu `SCVTF/UCVTF` och `FCVTZS/FCVTZU`, inklusive explicit unsigned-högintervall (`2^31`/`2^63`) i `UCVTF/FCVTZU`.
+- SIMD/FP-minnesformer stöder nu även scalar `LDR/STR S` och `LDR/STR D` (unsigned imm + post/pre-index + unscaled), samt `STP/LDP D` (signed offset).
+- Integer minnesformer stöder nu även `LDURSW` (unscaled) och `LDRSH` med `W`-destination (post/pre, unscaled, unsigned imm).
 - Unsupported-opcodes är nu exekveringsdrivna: de ger runtime-exit först när pathen faktiskt körs och kan loggas via `--log-unsupported`/`TINY_DBT_LOG_UNSUPPORTED`.
-- Minimal ELF-symbolrunner finns via `--elf-file/--elf-symbol` (plus `--elf-size` för `size=0`-symboler).
+- ELF-symbolrunner finns via `--elf-file/--elf-symbol` (plus `--elf-size` för `size=0`-symboler) och patchar out-of-range `B/BL` till lokala returstubbar.
+- ELF-symbolrunnern stöder nu även importspecifika returstubbar via `--elf-import-stub <symbol=value>` baserat på `.rela.plt/.plt`.
+- ELF-symbolrunnern stöder nu även host-callbacks via `--elf-import-callback <symbol=op>` (t.ex. `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`) via interna callback-markörer.
+- ELF-importmappning läser nu både `REL` och `RELA` från `.rel[a].plt/.rel[a].iplt` samt sektioner som pekar på `.plt/.plt.sec`.
+- ELF-symbolrunnern kan nu skriva per-symbol patchspårning med `--elf-import-trace <path>`.
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).
@@ -100,9 +106,9 @@
 
 ## Rekommenderad prioritet härnäst
 
-1. Förbättra FP-precision/semantik: korrekt unsigned 64-bit i `UCVTF/FCVTZU`, FP-undantag/rounding-mode och fler scalar-opcodes.
+1. Finslipa FP-semantik: FP-undantag/rounding-mode samt NaN/out-of-range-beteende i konverteringar.
 2. Bygg vidare på SIMD/NEON-bredd (arith, permute, compare) utifrån inventory-topplistor.
-3. Utöka ELF-runnern till relocation/trampoline-lager för kontrollerade `.so`-funktioner med externa beroenden.
+3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: fler libc-lika callback-op:s (`strcmp`, `strncmp`, `strlen`), bättre argument/retur-semantik och fallback-policy när symbolmappning saknas.
 
 ## Bedömning
 

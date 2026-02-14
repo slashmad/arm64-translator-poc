@@ -24,12 +24,59 @@ typedef struct {
 } MemWriteSpec;
 
 typedef struct {
+    char *name;
+    uint64_t value;
+} ElfImportStubSpec;
+
+typedef struct {
+    char *name;
+    uint8_t callback_id;
+} ElfImportCallbackSpec;
+
+enum {
+    IMPORT_CB_RET_X0 = 0x10,
+    IMPORT_CB_RET_X1 = 0x11,
+    IMPORT_CB_RET_X2 = 0x12,
+    IMPORT_CB_RET_X3 = 0x13,
+    IMPORT_CB_RET_X4 = 0x14,
+    IMPORT_CB_RET_X5 = 0x15,
+    IMPORT_CB_RET_X6 = 0x16,
+    IMPORT_CB_RET_X7 = 0x17,
+    IMPORT_CB_ADD_X0_X1 = 0x20,
+    IMPORT_CB_SUB_X0_X1 = 0x21,
+    IMPORT_CB_RET_SP = 0x30,
+    IMPORT_CB_NONNULL_X0 = 0x40,
+    IMPORT_CB_GUEST_ALLOC_X0 = 0x50,
+    IMPORT_CB_GUEST_FREE_X0 = 0x51,
+    IMPORT_CB_GUEST_CALLOC_X0_X1 = 0x52,
+    IMPORT_CB_GUEST_REALLOC_X0_X1 = 0x53,
+    IMPORT_CB_GUEST_MEMCPY_X0_X1_X2 = 0x54,
+    IMPORT_CB_GUEST_MEMSET_X0_X1_X2 = 0x55,
+    IMPORT_CB_GUEST_MEMCMP_X0_X1_X2 = 0x56,
+    IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2 = 0x57,
+    IMPORT_CB_GUEST_STRNLEN_X0_X1 = 0x58
+};
+
+typedef struct {
+    uint64_t plt_addr;
+    uint32_t plt_slot_size;
+    const char *name;
+} ElfPltImport;
+
+typedef struct {
     bool show_help;
     const char *code_file;
     const char *elf_file;
     const char *elf_symbol;
     size_t elf_size_override;
     bool has_elf_size_override;
+    ElfImportStubSpec *elf_import_stubs;
+    size_t n_elf_import_stubs;
+    size_t elf_import_stubs_cap;
+    ElfImportCallbackSpec *elf_import_callbacks;
+    size_t n_elf_import_callbacks;
+    size_t elf_import_callbacks_cap;
+    const char *elf_import_trace_path;
     TinyDbtCpuState initial_state;
     bool has_initial_state;
     bool trace_state;
@@ -85,6 +132,169 @@ static bool parse_size_arg(const char *s, size_t *out) {
     return true;
 }
 
+static bool parse_elf_import_stub_spec(const char *s, ElfImportStubSpec *out) {
+    const char *eq = strchr(s, '=');
+    if (!eq || eq == s || eq[1] == '\0') {
+        return false;
+    }
+
+    size_t name_len = (size_t)(eq - s);
+    char *name = malloc(name_len + 1u);
+    if (!name) {
+        return false;
+    }
+    memcpy(name, s, name_len);
+    name[name_len] = '\0';
+
+    uint64_t value = 0;
+    if (!parse_u64_arg(eq + 1, &value)) {
+        free(name);
+        return false;
+    }
+
+    out->name = name;
+    out->value = value;
+    return true;
+}
+
+static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callback_id) {
+    if (!kind || !out_callback_id) {
+        return false;
+    }
+
+    if (strcmp(kind, "add_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_ADD_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "sub_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_SUB_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "ret_sp") == 0) {
+        *out_callback_id = IMPORT_CB_RET_SP;
+        return true;
+    }
+    if (strcmp(kind, "nonnull_x0") == 0) {
+        *out_callback_id = IMPORT_CB_NONNULL_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_alloc_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ALLOC_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_free_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_FREE_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_calloc_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_CALLOC_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_realloc_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_REALLOC_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_memcpy_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_MEMCPY_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_memset_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_MEMSET_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_memcmp_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_MEMCMP_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_memmove_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_strnlen_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_STRNLEN_X0_X1;
+        return true;
+    }
+    if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
+        *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
+        return true;
+    }
+    return false;
+}
+
+static const char *import_callback_kind_name(uint8_t callback_id) {
+    switch (callback_id) {
+        case IMPORT_CB_RET_X0:
+            return "ret_x0";
+        case IMPORT_CB_RET_X1:
+            return "ret_x1";
+        case IMPORT_CB_RET_X2:
+            return "ret_x2";
+        case IMPORT_CB_RET_X3:
+            return "ret_x3";
+        case IMPORT_CB_RET_X4:
+            return "ret_x4";
+        case IMPORT_CB_RET_X5:
+            return "ret_x5";
+        case IMPORT_CB_RET_X6:
+            return "ret_x6";
+        case IMPORT_CB_RET_X7:
+            return "ret_x7";
+        case IMPORT_CB_ADD_X0_X1:
+            return "add_x0_x1";
+        case IMPORT_CB_SUB_X0_X1:
+            return "sub_x0_x1";
+        case IMPORT_CB_RET_SP:
+            return "ret_sp";
+        case IMPORT_CB_NONNULL_X0:
+            return "nonnull_x0";
+        case IMPORT_CB_GUEST_ALLOC_X0:
+            return "guest_alloc_x0";
+        case IMPORT_CB_GUEST_FREE_X0:
+            return "guest_free_x0";
+        case IMPORT_CB_GUEST_CALLOC_X0_X1:
+            return "guest_calloc_x0_x1";
+        case IMPORT_CB_GUEST_REALLOC_X0_X1:
+            return "guest_realloc_x0_x1";
+        case IMPORT_CB_GUEST_MEMCPY_X0_X1_X2:
+            return "guest_memcpy_x0_x1_x2";
+        case IMPORT_CB_GUEST_MEMSET_X0_X1_X2:
+            return "guest_memset_x0_x1_x2";
+        case IMPORT_CB_GUEST_MEMCMP_X0_X1_X2:
+            return "guest_memcmp_x0_x1_x2";
+        case IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2:
+            return "guest_memmove_x0_x1_x2";
+        case IMPORT_CB_GUEST_STRNLEN_X0_X1:
+            return "guest_strnlen_x0_x1";
+        default:
+            return "unknown";
+    }
+}
+
+static bool parse_elf_import_callback_spec(const char *s, ElfImportCallbackSpec *out) {
+    const char *eq = strchr(s, '=');
+    uint8_t callback_id = 0;
+    if (!eq || eq == s || eq[1] == '\0') {
+        return false;
+    }
+
+    size_t name_len = (size_t)(eq - s);
+    char *name = malloc(name_len + 1u);
+    if (!name) {
+        return false;
+    }
+    memcpy(name, s, name_len);
+    name[name_len] = '\0';
+
+    if (!parse_elf_import_callback_kind(eq + 1, &callback_id)) {
+        free(name);
+        return false;
+    }
+
+    out->name = name;
+    out->callback_id = callback_id;
+    return true;
+}
+
 static bool grow_array(void **ptr, size_t *cap, size_t elem_size) {
     size_t new_cap = (*cap == 0) ? 4 : (*cap * 2);
     if (new_cap < *cap || new_cap > SIZE_MAX / elem_size) {
@@ -116,6 +326,27 @@ static bool add_mem_write_spec(CliOptions *opts, MemWriteSpec spec) {
         }
     }
     opts->mem_writes[opts->n_mem_writes++] = spec;
+    return true;
+}
+
+static bool add_elf_import_stub_spec(CliOptions *opts, ElfImportStubSpec spec) {
+    if (opts->n_elf_import_stubs == opts->elf_import_stubs_cap) {
+        if (!grow_array((void **)&opts->elf_import_stubs, &opts->elf_import_stubs_cap, sizeof(*opts->elf_import_stubs))) {
+            return false;
+        }
+    }
+    opts->elf_import_stubs[opts->n_elf_import_stubs++] = spec;
+    return true;
+}
+
+static bool add_elf_import_callback_spec(CliOptions *opts, ElfImportCallbackSpec spec) {
+    if (opts->n_elf_import_callbacks == opts->elf_import_callbacks_cap) {
+        if (!grow_array((void **)&opts->elf_import_callbacks, &opts->elf_import_callbacks_cap,
+                        sizeof(*opts->elf_import_callbacks))) {
+            return false;
+        }
+    }
+    opts->elf_import_callbacks[opts->n_elf_import_callbacks++] = spec;
     return true;
 }
 
@@ -265,6 +496,600 @@ static bool range_within(size_t off, size_t len, size_t total) {
     return off <= total && len <= (total - off);
 }
 
+static uint32_t load_u32_le(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static void store_u32_le(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static bool find_import_stub_value(const ElfImportStubSpec *specs, size_t n_specs, const char *name, uint64_t *out_value) {
+    if (!specs || !name || !out_value) {
+        return false;
+    }
+    for (size_t i = n_specs; i > 0; --i) {
+        const ElfImportStubSpec *spec = &specs[i - 1u];
+        if (strcmp(spec->name, name) == 0) {
+            *out_value = spec->value;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool find_import_callback_id(const ElfImportCallbackSpec *specs, size_t n_specs, const char *name,
+                                    uint8_t *out_callback_id) {
+    if (!specs || !name || !out_callback_id) {
+        return false;
+    }
+    for (size_t i = n_specs; i > 0; --i) {
+        const ElfImportCallbackSpec *spec = &specs[i - 1u];
+        if (strcmp(spec->name, name) == 0) {
+            *out_callback_id = spec->callback_id;
+            return true;
+        }
+    }
+    return false;
+}
+
+static const ElfPltImport *find_plt_import_for_target(const ElfPltImport *imports, size_t n_imports, uint64_t target_vaddr) {
+    if (!imports) {
+        return NULL;
+    }
+    for (size_t i = 0; i < n_imports; ++i) {
+        uint64_t start = imports[i].plt_addr;
+        uint64_t end = start + (uint64_t)imports[i].plt_slot_size;
+        if (end < start) {
+            continue;
+        }
+        if (target_vaddr >= start && target_vaddr < end) {
+            return &imports[i];
+        }
+    }
+    return NULL;
+}
+
+static bool add_plt_import_entry(ElfPltImport **io_imports, size_t *io_n, size_t *io_cap, ElfPltImport entry) {
+    if (*io_n == *io_cap) {
+        if (!grow_array((void **)io_imports, io_cap, sizeof(**io_imports))) {
+            return false;
+        }
+    }
+    (*io_imports)[(*io_n)++] = entry;
+    return true;
+}
+
+static bool collect_elf_plt_imports_sections(const uint8_t *file, size_t file_size, const Elf64_Ehdr *eh,
+                                             const Elf64_Shdr *shdrs, ElfPltImport **out_imports, size_t *out_n_imports) {
+    if (!file || !eh || !shdrs || !out_imports || !out_n_imports) {
+        return false;
+    }
+    *out_imports = NULL;
+    *out_n_imports = 0;
+
+    if (eh->e_shstrndx == SHN_UNDEF || eh->e_shstrndx >= eh->e_shnum) {
+        return true;
+    }
+
+    const Elf64_Shdr *shstr = &shdrs[eh->e_shstrndx];
+    if (!range_within((size_t)shstr->sh_offset, (size_t)shstr->sh_size, file_size)) {
+        return true;
+    }
+    const char *shstrs = (const char *)(file + shstr->sh_offset);
+    size_t shstr_size = (size_t)shstr->sh_size;
+
+    const Elf64_Shdr *plt = NULL;
+    const Elf64_Shdr *plt_sec = NULL;
+    size_t plt_idx = SIZE_MAX;
+    size_t plt_sec_idx = SIZE_MAX;
+
+    for (size_t i = 0; i < eh->e_shnum; ++i) {
+        const Elf64_Shdr *sh = &shdrs[i];
+        if (sh->sh_name >= shstr_size) {
+            continue;
+        }
+        const char *name = shstrs + sh->sh_name;
+        if (strcmp(name, ".plt") == 0) {
+            plt = sh;
+            plt_idx = i;
+        } else if (strcmp(name, ".plt.sec") == 0) {
+            plt_sec = sh;
+            plt_sec_idx = i;
+        }
+    }
+
+    ElfPltImport *imports = NULL;
+    size_t n_imports = 0;
+    size_t imports_cap = 0;
+
+    for (size_t i = 0; i < eh->e_shnum; ++i) {
+        const Elf64_Shdr *relsec = &shdrs[i];
+        bool is_rela = relsec->sh_type == SHT_RELA;
+        bool is_rel = relsec->sh_type == SHT_REL;
+        const char *rel_name = NULL;
+        bool name_targets_plt = false;
+        bool name_targets_plt_sec = false;
+        bool info_targets_plt = false;
+
+        if (!is_rela && !is_rel) {
+            continue;
+        }
+        if ((is_rela && relsec->sh_entsize < sizeof(Elf64_Rela)) || (is_rel && relsec->sh_entsize < sizeof(Elf64_Rel))) {
+            continue;
+        }
+        if (!range_within((size_t)relsec->sh_offset, (size_t)relsec->sh_size, file_size)) {
+            continue;
+        }
+        if (relsec->sh_name < shstr_size) {
+            rel_name = shstrs + relsec->sh_name;
+            if (strncmp(rel_name, ".rela.plt", 9) == 0 || strncmp(rel_name, ".rel.plt", 8) == 0 ||
+                strncmp(rel_name, ".rela.iplt", 10) == 0 || strncmp(rel_name, ".rel.iplt", 9) == 0) {
+                name_targets_plt = true;
+            }
+            if (strstr(rel_name, ".plt.sec") != NULL) {
+                name_targets_plt_sec = true;
+            }
+        }
+        info_targets_plt = (relsec->sh_info == plt_idx || relsec->sh_info == plt_sec_idx);
+        if (!name_targets_plt && !info_targets_plt) {
+            continue;
+        }
+
+        const Elf64_Shdr *plt_target = plt;
+        uint64_t slot_base_index = 1u;
+        if (relsec->sh_info == plt_sec_idx || name_targets_plt_sec) {
+            plt_target = plt_sec ? plt_sec : plt;
+            slot_base_index = 0u;
+        } else if (relsec->sh_info == plt_idx) {
+            plt_target = plt;
+            slot_base_index = 1u;
+        }
+        if (!plt_target) {
+            continue;
+        }
+
+        uint32_t slot_size = 16u;
+        if (plt_target->sh_entsize != 0 && plt_target->sh_entsize <= UINT32_MAX) {
+            slot_size = (uint32_t)plt_target->sh_entsize;
+        }
+        if (slot_size == 0) {
+            slot_size = 16u;
+        }
+
+        if (relsec->sh_link >= eh->e_shnum) {
+            continue;
+        }
+        const Elf64_Shdr *symtab = &shdrs[relsec->sh_link];
+        if (symtab->sh_entsize < sizeof(Elf64_Sym) ||
+            !range_within((size_t)symtab->sh_offset, (size_t)symtab->sh_size, file_size)) {
+            continue;
+        }
+        if (symtab->sh_link >= eh->e_shnum) {
+            continue;
+        }
+        const Elf64_Shdr *strtab = &shdrs[symtab->sh_link];
+        if (!range_within((size_t)strtab->sh_offset, (size_t)strtab->sh_size, file_size)) {
+            continue;
+        }
+        const char *strs = (const char *)(file + strtab->sh_offset);
+        size_t str_size = (size_t)strtab->sh_size;
+        size_t n_sym = (size_t)(symtab->sh_size / symtab->sh_entsize);
+        size_t n_rel = (size_t)(relsec->sh_size / relsec->sh_entsize);
+
+        size_t jump_slot_idx = 0;
+        for (size_t ri = 0; ri < n_rel; ++ri) {
+            uint64_t r_info = 0;
+
+            if (is_rela) {
+                const Elf64_Rela *rel = (const Elf64_Rela *)(file + relsec->sh_offset + ri * relsec->sh_entsize);
+                r_info = rel->r_info;
+            } else {
+                const Elf64_Rel *rel = (const Elf64_Rel *)(file + relsec->sh_offset + ri * relsec->sh_entsize);
+                r_info = rel->r_info;
+            }
+            if (ELF64_R_TYPE(r_info) != R_AARCH64_JUMP_SLOT) {
+                continue;
+            }
+
+            size_t slot_idx = jump_slot_idx++;
+            size_t sym_idx = (size_t)ELF64_R_SYM(r_info);
+            if (sym_idx >= n_sym) {
+                continue;
+            }
+
+            const Elf64_Sym *sym = (const Elf64_Sym *)(file + symtab->sh_offset + sym_idx * symtab->sh_entsize);
+            if (sym->st_name >= str_size) {
+                continue;
+            }
+            const char *name = strs + sym->st_name;
+            if (name[0] == '\0') {
+                continue;
+            }
+
+            uint64_t addr = plt_target->sh_addr + (slot_base_index + (uint64_t)slot_idx) * (uint64_t)slot_size;
+            ElfPltImport entry = {
+                .plt_addr = addr,
+                .plt_slot_size = slot_size,
+                .name = name,
+            };
+            if (!add_plt_import_entry(&imports, &n_imports, &imports_cap, entry)) {
+                free(imports);
+                return false;
+            }
+        }
+    }
+
+    *out_imports = imports;
+    *out_n_imports = n_imports;
+    return true;
+}
+
+static uint32_t encode_movz_x0(uint16_t imm16, unsigned hw) {
+    return 0xD2800000u | ((uint32_t)(hw & 3u) << 21) | ((uint32_t)imm16 << 5);
+}
+
+static uint32_t encode_movk_x0(uint16_t imm16, unsigned hw) {
+    return 0xF2800000u | ((uint32_t)(hw & 3u) << 21) | ((uint32_t)imm16 << 5);
+}
+
+static uint32_t encode_import_callback_marker(uint8_t callback_id) {
+    uint16_t imm16 = (uint16_t)(0xA500u | callback_id);
+    return 0xD4400000u | ((uint32_t)imm16 << 5); /* HLT #imm16 */
+}
+
+static void emit_return_value_stub(uint8_t *code, size_t stub_pc, uint64_t value) {
+    uint16_t h0 = (uint16_t)(value & 0xFFFFu);
+    uint16_t h1 = (uint16_t)((value >> 16) & 0xFFFFu);
+    uint16_t h2 = (uint16_t)((value >> 32) & 0xFFFFu);
+    uint16_t h3 = (uint16_t)((value >> 48) & 0xFFFFu);
+    store_u32_le(code + (stub_pc + 0u) * 4u, encode_movz_x0(h0, 0u));
+    store_u32_le(code + (stub_pc + 1u) * 4u, encode_movk_x0(h1, 1u));
+    store_u32_le(code + (stub_pc + 2u) * 4u, encode_movk_x0(h2, 2u));
+    store_u32_le(code + (stub_pc + 3u) * 4u, encode_movk_x0(h3, 3u));
+    store_u32_le(code + (stub_pc + 4u) * 4u, 0xD65F03C0u); /* RET */
+}
+
+static void emit_import_callback_stub(uint8_t *code, size_t stub_pc, uint8_t callback_id) {
+    store_u32_le(code + (stub_pc + 0u) * 4u, encode_import_callback_marker(callback_id));
+    store_u32_le(code + (stub_pc + 1u) * 4u, 0xD65F03C0u); /* RET */
+    store_u32_le(code + (stub_pc + 2u) * 4u, 0xD503201Fu); /* NOP */
+    store_u32_le(code + (stub_pc + 3u) * 4u, 0xD503201Fu); /* NOP */
+    store_u32_le(code + (stub_pc + 4u) * 4u, 0xD503201Fu); /* NOP */
+}
+
+static bool add_signed_u64(uint64_t base, int64_t delta, uint64_t *out) {
+    if (delta >= 0) {
+        uint64_t u = (uint64_t)delta;
+        if (base > UINT64_MAX - u) {
+            return false;
+        }
+        *out = base + u;
+        return true;
+    }
+
+    uint64_t u = (uint64_t)(-delta);
+    if (base < u) {
+        return false;
+    }
+    *out = base - u;
+    return true;
+}
+
+typedef struct {
+    const char *name;
+    bool is_callback;
+    uint8_t callback_id;
+    uint64_t value;
+    size_t stub_pc;
+    size_t use_count;
+} ElfBranchStub;
+
+static int find_branch_stub_index(const ElfBranchStub *stubs, size_t n_stubs, const char *name, bool is_callback,
+                                  uint8_t callback_id, uint64_t value) {
+    for (size_t i = 0; i < n_stubs; ++i) {
+        if (stubs[i].is_callback != is_callback) {
+            continue;
+        }
+        if (is_callback) {
+            if (stubs[i].callback_id != callback_id) {
+                continue;
+            }
+        } else if (stubs[i].value != value) {
+            continue;
+        }
+        if (!name && !stubs[i].name) {
+            return (int)i;
+        }
+        if (name && stubs[i].name && strcmp(name, stubs[i].name) == 0) {
+            return (int)i;
+        }
+    }
+    return -1;
+}
+
+static int find_or_add_branch_stub(ElfBranchStub **io_stubs, size_t *io_n, size_t *io_cap, const char *name, bool is_callback,
+                                   uint8_t callback_id, uint64_t value) {
+    int idx = find_branch_stub_index(*io_stubs, *io_n, name, is_callback, callback_id, value);
+    if (idx >= 0) {
+        return idx;
+    }
+    if (*io_n == *io_cap) {
+        if (!grow_array((void **)io_stubs, io_cap, sizeof(**io_stubs))) {
+            return -1;
+        }
+    }
+    (*io_stubs)[*io_n] = (ElfBranchStub){
+        .name = name,
+        .is_callback = is_callback,
+        .callback_id = callback_id,
+        .value = value,
+        .stub_pc = 0,
+        .use_count = 0,
+    };
+    idx = (int)(*io_n);
+    (*io_n)++;
+    return idx;
+}
+
+static bool select_branch_stub(size_t pc, int64_t target_pc, uint64_t symbol_vaddr, const ElfPltImport *plt_imports,
+                               size_t n_plt_imports, const ElfImportStubSpec *import_specs, size_t n_import_specs,
+                               const ElfImportCallbackSpec *callback_specs, size_t n_callback_specs, const char **out_name,
+                               bool *out_is_callback, uint8_t *out_callback_id, uint64_t *out_value) {
+    *out_name = NULL;
+    *out_is_callback = false;
+    *out_callback_id = 0;
+    *out_value = 0;
+
+    if (!plt_imports || n_plt_imports == 0) {
+        return true;
+    }
+    if (target_pc > INT64_MAX / 4ll || target_pc < INT64_MIN / 4ll) {
+        return true;
+    }
+
+    int64_t target_byte_off = target_pc * 4ll;
+    uint64_t target_vaddr = 0;
+    if (!add_signed_u64(symbol_vaddr, target_byte_off, &target_vaddr)) {
+        return true;
+    }
+
+    const ElfPltImport *imp = find_plt_import_for_target(plt_imports, n_plt_imports, target_vaddr);
+    if (!imp) {
+        return true;
+    }
+
+    uint8_t callback_id = 0;
+    if (find_import_callback_id(callback_specs, n_callback_specs, imp->name, &callback_id)) {
+        *out_name = imp->name;
+        *out_is_callback = true;
+        *out_callback_id = callback_id;
+        *out_value = 0;
+        (void)pc;
+        return true;
+    }
+
+    if (import_specs && n_import_specs > 0) {
+        uint64_t stub_value = 0;
+        if (find_import_stub_value(import_specs, n_import_specs, imp->name, &stub_value)) {
+            *out_name = imp->name;
+            *out_is_callback = false;
+            *out_callback_id = 0;
+            *out_value = stub_value;
+            (void)pc;
+            return true;
+        }
+    }
+
+    (void)pc;
+    return true;
+}
+
+/*
+ * Redirect out-of-range B/BL immediates in extracted symbols to local stubs.
+ * Default stub returns X0=0; import-specific stubs can be configured via
+ * --elf-import-stub <symbol>=<value>.
+ */
+static bool patch_elf_out_of_range_branches(uint8_t **io_code, size_t *io_size, uint64_t symbol_vaddr,
+                                            const ElfPltImport *plt_imports, size_t n_plt_imports,
+                                            const ElfImportStubSpec *import_specs, size_t n_import_specs,
+                                            const ElfImportCallbackSpec *callback_specs, size_t n_callback_specs,
+                                            const char *trace_path) {
+    if (!io_code || !io_size || !*io_code) {
+        return false;
+    }
+
+    uint8_t *code = *io_code;
+    size_t code_size = *io_size;
+
+    if (code_size < 4 || (code_size % 4u) != 0u) {
+        return true;
+    }
+
+    size_t n_insn = code_size / 4u;
+    size_t out_of_range_count = 0;
+    ElfBranchStub *stubs = NULL;
+    size_t n_stubs = 0;
+    size_t stubs_cap = 0;
+    size_t local_ret_branch_count = 0;
+    size_t import_value_branch_count = 0;
+    size_t import_callback_branch_count = 0;
+
+    for (size_t pc = 0; pc < n_insn; ++pc) {
+        uint32_t insn = load_u32_le(code + pc * 4u);
+        if ((insn & 0x7C000000u) != 0x14000000u) {
+            continue; /* not B/BL */
+        }
+        int64_t imm26 = (int64_t)(insn & 0x03FFFFFFu);
+        if ((imm26 & (1ll << 25)) != 0) {
+            imm26 -= (1ll << 26);
+        }
+        int64_t target_pc = (int64_t)pc + imm26;
+        if (target_pc < 0 || target_pc >= (int64_t)n_insn) {
+            const char *stub_name = NULL;
+            bool is_callback = false;
+            uint8_t callback_id = 0;
+            uint64_t stub_value = 0;
+            if (!select_branch_stub(pc, target_pc, symbol_vaddr, plt_imports, n_plt_imports, import_specs, n_import_specs,
+                                    callback_specs, n_callback_specs, &stub_name, &is_callback, &callback_id,
+                                    &stub_value)) {
+                free(stubs);
+                return false;
+            }
+            int stub_idx =
+                find_or_add_branch_stub(&stubs, &n_stubs, &stubs_cap, stub_name, is_callback, callback_id, stub_value);
+            if (stub_idx < 0) {
+                free(stubs);
+                fprintf(stderr, "out of memory while building ELF branch stubs\n");
+                return false;
+            }
+            stubs[stub_idx].use_count++;
+            if (!stub_name) {
+                local_ret_branch_count++;
+            } else if (is_callback) {
+                import_callback_branch_count++;
+            } else {
+                import_value_branch_count++;
+            }
+            out_of_range_count++;
+        }
+    }
+
+    if (out_of_range_count == 0) {
+        free(stubs);
+        return true;
+    }
+
+    const size_t k_stub_insn = 5u;
+    if (n_stubs > SIZE_MAX / k_stub_insn) {
+        free(stubs);
+        fprintf(stderr, "too many ELF branch stubs\n");
+        return false;
+    }
+    size_t extra_insn = n_stubs * k_stub_insn;
+    if (n_insn > SIZE_MAX - extra_insn || (n_insn + extra_insn) > SIZE_MAX / 4u) {
+        free(stubs);
+        fprintf(stderr, "symbol too large for external branch patching\n");
+        return false;
+    }
+
+    size_t next_stub_pc = n_insn;
+    for (size_t i = 0; i < n_stubs; ++i) {
+        stubs[i].stub_pc = next_stub_pc;
+        next_stub_pc += k_stub_insn;
+    }
+
+    size_t patched_n_insn = n_insn + extra_insn;
+    size_t patched_size = patched_n_insn * 4u;
+    uint8_t *patched = malloc(patched_size);
+    if (!patched) {
+        free(stubs);
+        perror("malloc");
+        return false;
+    }
+    memcpy(patched, code, code_size);
+
+    size_t patched_count = 0;
+    for (size_t pc = 0; pc < n_insn; ++pc) {
+        uint32_t insn = load_u32_le(patched + pc * 4u);
+        if ((insn & 0x7C000000u) != 0x14000000u) {
+            continue;
+        }
+        int64_t imm26 = (int64_t)(insn & 0x03FFFFFFu);
+        if ((imm26 & (1ll << 25)) != 0) {
+            imm26 -= (1ll << 26);
+        }
+        int64_t target_pc = (int64_t)pc + imm26;
+        if (target_pc >= 0 && target_pc < (int64_t)n_insn) {
+            continue;
+        }
+
+        const char *stub_name = NULL;
+        bool is_callback = false;
+        uint8_t callback_id = 0;
+        uint64_t stub_value = 0;
+        if (!select_branch_stub(pc, target_pc, symbol_vaddr, plt_imports, n_plt_imports, import_specs, n_import_specs,
+                                callback_specs, n_callback_specs, &stub_name, &is_callback, &callback_id, &stub_value)) {
+            fprintf(stderr, "failed to select ELF branch stub at pc=%zu\n", pc);
+            free(stubs);
+            free(patched);
+            return false;
+        }
+        int stub_idx = find_branch_stub_index(stubs, n_stubs, stub_name, is_callback, callback_id, stub_value);
+        if (stub_idx < 0) {
+            fprintf(stderr, "internal error while patching ELF branch stubs at pc=%zu\n", pc);
+            free(stubs);
+            free(patched);
+            return false;
+        }
+
+        int64_t new_imm26 = (int64_t)stubs[stub_idx].stub_pc - (int64_t)pc;
+        if (new_imm26 < -(1ll << 25) || new_imm26 > ((1ll << 25) - 1ll)) {
+            fprintf(stderr, "external branch trampoline out of range at pc=%zu\n", pc);
+            free(stubs);
+            free(patched);
+            return false;
+        }
+        uint32_t patched_insn = (insn & 0xFC000000u) | ((uint32_t)new_imm26 & 0x03FFFFFFu);
+        store_u32_le(patched + pc * 4u, patched_insn);
+        patched_count++;
+    }
+
+    for (size_t i = 0; i < n_stubs; ++i) {
+        if (stubs[i].is_callback) {
+            emit_import_callback_stub(patched, stubs[i].stub_pc, stubs[i].callback_id);
+        } else {
+            emit_return_value_stub(patched, stubs[i].stub_pc, stubs[i].value);
+        }
+    }
+
+    free(code);
+    *io_code = patched;
+    *io_size = patched_size;
+    fprintf(stderr,
+            "patched %zu out-of-range B/BL branches to %zu local ELF stubs (%zu local-ret, %zu import-value, %zu import-callback)\n",
+            patched_count, n_stubs, local_ret_branch_count, import_value_branch_count, import_callback_branch_count);
+    if (n_stubs > 0) {
+        FILE *trace_file = NULL;
+        if (trace_path && trace_path[0] != '\0') {
+            trace_file = fopen(trace_path, "a");
+            if (!trace_file) {
+                fprintf(stderr, "warning: failed to open import trace file '%s': %s\n", trace_path, strerror(errno));
+            }
+        }
+        for (size_t i = 0; i < n_stubs; ++i) {
+            if (!stubs[i].name) {
+                fprintf(stderr, "  local-ret: branches=%zu\n", stubs[i].use_count);
+                if (trace_file) {
+                    fprintf(trace_file, "local-ret branches=%zu\n", stubs[i].use_count);
+                }
+            } else if (stubs[i].is_callback) {
+                fprintf(stderr, "  import-callback: symbol=%s op=%s branches=%zu\n", stubs[i].name,
+                        import_callback_kind_name(stubs[i].callback_id), stubs[i].use_count);
+                if (trace_file) {
+                    fprintf(trace_file, "import-callback symbol=%s op=%s branches=%zu\n", stubs[i].name,
+                            import_callback_kind_name(stubs[i].callback_id), stubs[i].use_count);
+                }
+            } else {
+                fprintf(stderr, "  import-stub: symbol=%s value=0x%" PRIx64 " branches=%zu\n", stubs[i].name, stubs[i].value,
+                        stubs[i].use_count);
+                if (trace_file) {
+                    fprintf(trace_file, "import-stub symbol=%s value=0x%" PRIx64 " branches=%zu\n", stubs[i].name,
+                            stubs[i].value, stubs[i].use_count);
+                }
+            }
+        }
+        if (trace_file) {
+            fclose(trace_file);
+        }
+    }
+    free(stubs);
+    return true;
+}
+
 static bool elf_vaddr_to_offset(const Elf64_Phdr *phdrs, size_t n_phdr, uint64_t vaddr, size_t *out_off, size_t *out_avail) {
     for (size_t i = 0; i < n_phdr; ++i) {
         const Elf64_Phdr *ph = &phdrs[i];
@@ -288,11 +1113,15 @@ static bool elf_vaddr_to_offset(const Elf64_Phdr *phdrs, size_t n_phdr, uint64_t
 }
 
 static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool has_size_override, size_t size_override,
-                                 uint8_t **out_code, size_t *out_size) {
+                                 const ElfImportStubSpec *import_specs, size_t n_import_specs,
+                                 const ElfImportCallbackSpec *callback_specs, size_t n_callback_specs,
+                                 const char *import_trace_path, uint8_t **out_code, size_t *out_size) {
     size_t file_size = 0;
     uint8_t *file = NULL;
     bool found_zero_size = false;
     bool ok = false;
+    ElfPltImport *plt_imports = NULL;
+    size_t n_plt_imports = 0;
 
     if (!elf_path || !symbol || !out_code || !out_size) {
         return false;
@@ -343,6 +1172,10 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
     if (eh->e_shnum > 0 && eh->e_shentsize == sizeof(Elf64_Shdr) &&
         range_within((size_t)eh->e_shoff, (size_t)eh->e_shnum * sizeof(Elf64_Shdr), file_size)) {
         shdrs = (const Elf64_Shdr *)(file + eh->e_shoff);
+        if (!collect_elf_plt_imports_sections(file, file_size, eh, shdrs, &plt_imports, &n_plt_imports)) {
+            fprintf(stderr, "failed to collect ELF PLT import table\n");
+            goto out;
+        }
         for (size_t sec_i = 0; sec_i < eh->e_shnum; ++sec_i) {
             const Elf64_Shdr *symtab = &shdrs[sec_i];
             if (symtab->sh_type != SHT_SYMTAB && symtab->sh_type != SHT_DYNSYM) {
@@ -412,6 +1245,11 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
                     goto out;
                 }
                 memcpy(code, file + file_off, code_size);
+                if (!patch_elf_out_of_range_branches(&code, &code_size, sym->st_value, plt_imports, n_plt_imports, import_specs,
+                                                     n_import_specs, callback_specs, n_callback_specs, import_trace_path)) {
+                    free(code);
+                    goto out;
+                }
                 *out_code = code;
                 *out_size = code_size;
                 ok = true;
@@ -576,6 +1414,12 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
                         goto out;
                     }
                     memcpy(code, file + code_off, code_size);
+                    if (!patch_elf_out_of_range_branches(&code, &code_size, sym->st_value, plt_imports, n_plt_imports,
+                                                         import_specs, n_import_specs, callback_specs, n_callback_specs,
+                                                         import_trace_path)) {
+                        free(code);
+                        goto out;
+                    }
                     *out_code = code;
                     *out_size = code_size;
                     ok = true;
@@ -592,6 +1436,7 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
     }
 
 out:
+    free(plt_imports);
     free(file);
     return ok;
 }
@@ -705,6 +1550,22 @@ static bool parse_reg_assignment(const char *s, TinyDbtCpuState *state) {
         state->nzcv = (uint32_t)value;
         return true;
     }
+    if (strcmp(reg, "heap_base") == 0) {
+        state->heap_base = value;
+        return true;
+    }
+    if (strcmp(reg, "heap_brk") == 0) {
+        state->heap_brk = value;
+        return true;
+    }
+    if (strcmp(reg, "heap_last_ptr") == 0) {
+        state->heap_last_ptr = value;
+        return true;
+    }
+    if (strcmp(reg, "heap_last_size") == 0) {
+        state->heap_last_size = value;
+        return true;
+    }
     if (reg[0] == 'x' && reg[1] != '\0') {
         char *end = NULL;
         errno = 0;
@@ -773,6 +1634,24 @@ static void free_cli_options(CliOptions *opts) {
     if (!opts) {
         return;
     }
+    for (size_t i = 0; i < opts->n_elf_import_stubs; ++i) {
+        free(opts->elf_import_stubs[i].name);
+        opts->elf_import_stubs[i].name = NULL;
+    }
+    free(opts->elf_import_stubs);
+    opts->elf_import_stubs = NULL;
+    opts->n_elf_import_stubs = 0;
+    opts->elf_import_stubs_cap = 0;
+
+    for (size_t i = 0; i < opts->n_elf_import_callbacks; ++i) {
+        free(opts->elf_import_callbacks[i].name);
+        opts->elf_import_callbacks[i].name = NULL;
+    }
+    free(opts->elf_import_callbacks);
+    opts->elf_import_callbacks = NULL;
+    opts->n_elf_import_callbacks = 0;
+    opts->elf_import_callbacks_cap = 0;
+
     for (size_t i = 0; i < opts->n_mem_writes; ++i) {
         free(opts->mem_writes[i].bytes);
         opts->mem_writes[i].bytes = NULL;
@@ -799,8 +1678,11 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-file <path>               load code bytes from an AArch64 ELF image\n"
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
+            "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1)\n"
+            "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"
-            "  --set-reg <name=value>          set initial register/state (x0..x30, sp, pc, nzcv)\n"
+            "  --set-reg <name=value>          set initial register/state (x0..x30, sp, pc, nzcv, heap_*)\n"
             "  --trace-state                   print a compact CPU-state snapshot before/after run\n"
             "  --mem-write <addr:hexbytes>     write bytes into guest memory before run\n"
             "  --mem-write-file <addr:path>    load bytes from file into guest memory before run\n"
@@ -823,8 +1705,11 @@ static void print_usage(FILE *out, const char *prog) {
             "  %s --mem-write-file 0x20:/tmp/mem.bin --mem-read 0x20:8 D2800401 F9400020 D65F03C0\n"
             "  %s --mem-read-file 0x20:8:/tmp/out.bin D2800401 F9400020 D65F03C0\n"
             "  %s --invalidate-dispatch D2800540 D65F03C0\n"
+            "  %s --elf-file /tmp/libfoo.so --elf-symbol JNI_OnLoad --elf-import-stub malloc=0\n"
+            "  %s --elf-file /tmp/libfoo.so --elf-symbol JNI_OnLoad --elf-import-callback malloc=ret_x0\n"
+            "  %s --elf-file /tmp/libfoo.so --elf-symbol JNI_OnLoad --elf-import-trace /tmp/import_trace.log\n"
             "  %s --invalidate-pc-indexes=3 D2800181 D61F0020 D2800000 D2800540 91000400 D65F03C0\n",
-            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
 }
 
 static bool parse_cli_options(int argc, char **argv, CliOptions *opts) {
@@ -919,6 +1804,87 @@ static bool parse_cli_options(int argc, char **argv, CliOptions *opts) {
                 return false;
             }
             opts->has_elf_size_override = true;
+            continue;
+        }
+        if (strncmp(arg, "--elf-import-stub=", 18) == 0) {
+            ElfImportStubSpec spec = {0};
+            const char *value = arg + 18;
+            if (!parse_elf_import_stub_spec(value, &spec)) {
+                fprintf(stderr, "invalid value for --elf-import-stub: %s\n", value);
+                return false;
+            }
+            if (!add_elf_import_stub_spec(opts, spec)) {
+                free(spec.name);
+                fprintf(stderr, "out of memory while parsing --elf-import-stub\n");
+                return false;
+            }
+            continue;
+        }
+        if (strcmp(arg, "--elf-import-stub") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing value for --elf-import-stub\n");
+                return false;
+            }
+            ElfImportStubSpec spec = {0};
+            const char *value = argv[++i];
+            if (!parse_elf_import_stub_spec(value, &spec)) {
+                fprintf(stderr, "invalid value for --elf-import-stub: %s\n", value);
+                return false;
+            }
+            if (!add_elf_import_stub_spec(opts, spec)) {
+                free(spec.name);
+                fprintf(stderr, "out of memory while parsing --elf-import-stub\n");
+                return false;
+            }
+            continue;
+        }
+        if (strncmp(arg, "--elf-import-callback=", 22) == 0) {
+            ElfImportCallbackSpec spec = {0};
+            const char *value = arg + 22;
+            if (!parse_elf_import_callback_spec(value, &spec)) {
+                fprintf(stderr, "invalid value for --elf-import-callback: %s\n", value);
+                return false;
+            }
+            if (!add_elf_import_callback_spec(opts, spec)) {
+                free(spec.name);
+                fprintf(stderr, "out of memory while parsing --elf-import-callback\n");
+                return false;
+            }
+            continue;
+        }
+        if (strcmp(arg, "--elf-import-callback") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing value for --elf-import-callback\n");
+                return false;
+            }
+            ElfImportCallbackSpec spec = {0};
+            const char *value = argv[++i];
+            if (!parse_elf_import_callback_spec(value, &spec)) {
+                fprintf(stderr, "invalid value for --elf-import-callback: %s\n", value);
+                return false;
+            }
+            if (!add_elf_import_callback_spec(opts, spec)) {
+                free(spec.name);
+                fprintf(stderr, "out of memory while parsing --elf-import-callback\n");
+                return false;
+            }
+            continue;
+        }
+        if (strncmp(arg, "--elf-import-trace=", 19) == 0) {
+            const char *value = arg + 19;
+            if (value[0] == '\0') {
+                fprintf(stderr, "missing value for --elf-import-trace\n");
+                return false;
+            }
+            opts->elf_import_trace_path = value;
+            continue;
+        }
+        if (strcmp(arg, "--elf-import-trace") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing value for --elf-import-trace\n");
+                return false;
+            }
+            opts->elf_import_trace_path = argv[++i];
             continue;
         }
         if (strncmp(arg, "--pc-bytes=", 11) == 0) {
@@ -1211,6 +2177,24 @@ int main(int argc, char **argv) {
         rc = 2;
         goto out;
     }
+    if (opts.n_elf_import_stubs > 0 && !opts.elf_file) {
+        fprintf(stderr, "--elf-import-stub requires --elf-file/--elf-symbol\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
+    if (opts.n_elf_import_callbacks > 0 && !opts.elf_file) {
+        fprintf(stderr, "--elf-import-callback requires --elf-file/--elf-symbol\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
+    if (opts.elf_import_trace_path && !opts.elf_file) {
+        fprintf(stderr, "--elf-import-trace requires --elf-file/--elf-symbol\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
     if ((opts.code_file || opts.elf_file) && opts.first_opcode_arg < argc) {
         fprintf(stderr, "--code-file/--elf-file cannot be combined with inline opcode arguments\n");
         print_usage(stderr, argv[0]);
@@ -1228,7 +2212,8 @@ int main(int argc, char **argv) {
         size_t code_size = 0;
         uint8_t *code = NULL;
         if (!load_elf_symbol_code(opts.elf_file, opts.elf_symbol, opts.has_elf_size_override, opts.elf_size_override,
-                                  &code, &code_size)) {
+                                  opts.elf_import_stubs, opts.n_elf_import_stubs, opts.elf_import_callbacks,
+                                  opts.n_elf_import_callbacks, opts.elf_import_trace_path, &code, &code_size)) {
             goto out;
         }
         dbt = tiny_dbt_create_from_bytes(code, code_size);

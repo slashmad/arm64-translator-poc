@@ -32,6 +32,10 @@ typedef struct {
     uint64_t unsupported_pc_index;
     uint32_t unsupported_insn;
     uint32_t unsupported_pad;
+    uint64_t heap_base;
+    uint64_t heap_brk;
+    uint64_t heap_last_ptr;
+    uint64_t heap_last_size;
 } TinyDbtCpuState;
 
 typedef struct {

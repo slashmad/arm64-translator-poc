@@ -635,6 +635,19 @@ static void x86_cvttsd2si_r64_from_xmm(CodeBuf *cb, int dst_reg, int src_xmm) {
     emit1(cb, (uint8_t)(0xC0 | ((dst_reg & 7) << 3) | (src_xmm & 7)));
 }
 
+static void x86_ucomiss_rr(CodeBuf *cb, int lhs_xmm, int rhs_xmm) {
+    emit1(cb, 0x0F);
+    emit1(cb, 0x2E); /* ucomiss xmm, xmm/m32 */
+    emit1(cb, (uint8_t)(0xC0 | ((lhs_xmm & 7) << 3) | (rhs_xmm & 7)));
+}
+
+static void x86_ucomisd_rr(CodeBuf *cb, int lhs_xmm, int rhs_xmm) {
+    emit1(cb, 0x66);
+    emit1(cb, 0x0F);
+    emit1(cb, 0x2E); /* ucomisd xmm, xmm/m64 */
+    emit1(cb, (uint8_t)(0xC0 | ((lhs_xmm & 7) << 3) | (rhs_xmm & 7)));
+}
+
 static void x86_mov_r_from_mem_base_index_disp32(CodeBuf *cb, int dst, int base, int index, int32_t disp) {
     emit_rex_w_sib(cb, dst, index, base);
     emit1(cb, 0x8B); /* mov r64, r/m64 */
@@ -824,6 +837,14 @@ static void x86_jmp_r(CodeBuf *cb, int reg) {
     }
     emit1(cb, 0xFF); /* jmp r/m64 */
     emit1(cb, (uint8_t)(0xE0 | (reg & 7))); /* /4, mod=11 */
+}
+
+static void x86_call_r(CodeBuf *cb, int reg) {
+    if (reg >= 8) {
+        emit1(cb, 0x41);
+    }
+    emit1(cb, 0xFF); /* call r/m64 */
+    emit1(cb, (uint8_t)(0xD0 | (reg & 7))); /* /2, mod=11 */
 }
 
 static size_t x86_jmp_rel32(CodeBuf *cb) {
@@ -1276,6 +1297,53 @@ static int state_x_offset(unsigned a64_reg) {
 
 static int state_v_qword_offset(unsigned vreg, unsigned qword) {
     return (int)(offsetof(CPUState, v) + (((vreg * 2u) + qword) * sizeof(uint64_t)));
+}
+
+static void emit_sync_mapped_guest_regs_to_state(CodeBuf *cb) {
+    for (unsigned reg = 0; reg < 31; ++reg) {
+        int host = map_reg(reg);
+        if (host < 0) {
+            continue;
+        }
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_x_offset(reg), host);
+    }
+}
+
+static void emit_reload_mapped_guest_regs_from_state(CodeBuf *cb, bool include_x0) {
+    for (unsigned reg = 0; reg < 31; ++reg) {
+        int host = map_reg(reg);
+        if (host < 0) {
+            continue;
+        }
+        if (!include_x0 && reg == 0u) {
+            continue;
+        }
+        x86_mov_r_from_mem_base_disp32(cb, host, 3, state_x_offset(reg));
+    }
+}
+
+static void emit_host_import_callback(CodeBuf *cb, uint8_t callback_id) {
+    emit_preserve_guest_flags_begin(cb);
+
+    /* Materialize guest x0..x10 in state so callbacks can read argument registers. */
+    emit_sync_mapped_guest_regs_to_state(cb);
+
+    /* SysV ABI: rdi=CPUState*, rsi=callback_id. */
+    x86_mov_rr(cb, 7, 3);
+    x86_mov_imm64(cb, 6, callback_id);
+
+    /* Align stack to 16 bytes before the call. */
+    x86_sub_imm32(cb, 4, 8);
+    x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)dbt_runtime_import_callback_dispatch);
+    x86_call_r(cb, 10);
+    x86_add_imm32(cb, 4, 8);
+
+    /* Preserve callback return value, then restore caller-saved guest mappings. */
+    x86_mov_rr(cb, 13, 0);
+    emit_reload_mapped_guest_regs_from_state(cb, false);
+    x86_mov_rr(cb, 0, 13);
+
+    emit_preserve_guest_flags_end(cb);
 }
 
 static void emit_set_state_pc_bytes(CodeBuf *cb, uint64_t pc_bytes) {
@@ -1875,6 +1943,92 @@ static void emit_sqrdmlah_lane32(CodeBuf *cb, unsigned rd, unsigned rn, unsigned
     x86_mov_mem_base_disp32_from_r32(cb, 3, 10, rd_disp);
 }
 
+/*
+ * Emit one SQRDMLSH 32-bit lane:
+ *   Rd_lane = sat32(Rd_lane + sat32(round((-2 * Rn_lane * Rm_lane) / 2^32)))
+ */
+static void emit_sqrdmlsh_lane32(CodeBuf *cb, unsigned rd, unsigned rn, unsigned rm, unsigned qword, unsigned lane) {
+    int32_t rd_disp = state_v_qword_offset(rd, qword) + (int32_t)(lane * 4u);
+    int32_t rn_disp = state_v_qword_offset(rn, qword) + (int32_t)(lane * 4u);
+    int32_t rm_disp = state_v_qword_offset(rm, qword) + (int32_t)(lane * 4u);
+    const uint64_t prod_sat = 0x4000000000000000ull;
+    const uint64_t round_const = 0x0000000080000000ull;
+    const uint64_t i32_max_u64 = 0x000000007FFFFFFFull;
+    const uint64_t i32_min_u64 = 0xFFFFFFFF80000000ull;
+    size_t to_normal_sqrdmulh;
+    size_t to_after_sqrdmulh;
+    size_t to_no_tie_adjust;
+    size_t to_check_low_sat;
+    size_t to_store;
+    size_t to_store_after_low_check;
+
+    /* r10 = signext(Rn_lane), r13 = signext(Rm_lane) */
+    x86_mov_r32_from_mem_base_disp32(cb, 10, 3, rn_disp);
+    x86_movsxd_rr(cb, 10, 10);
+    x86_mov_r32_from_mem_base_disp32(cb, 13, 3, rm_disp);
+    x86_movsxd_rr(cb, 13, 13);
+
+    /* r10 = Rn_lane * Rm_lane (signed 64-bit) */
+    x86_imul_rr(cb, 10, 13);
+
+    /*
+     * Handle the only overflow case for doubling: product == 2^62
+     * (i.e. INT32_MIN * INT32_MIN), which maps to INT32_MIN for the -S form.
+     */
+    x86_mov_imm64(cb, 13, prod_sat);
+    x86_cmp_rr(cb, 10, 13);
+    to_normal_sqrdmulh = x86_jnz_rel32(cb);
+    x86_mov_imm64(cb, 10, i32_min_u64);
+    to_after_sqrdmulh = x86_jmp_rel32(cb);
+
+    patch_rel32_at(cb->data, to_normal_sqrdmulh, cb->len);
+
+    /* r10 = 2 * product */
+    x86_add_rr(cb, 10, 10);
+
+    /*
+     * Compute rounded high-half for negative doubled product.
+     * For RShr rounding, -(RShr(y)) needs +1 adjustment when low32(y)==0x80000000.
+     */
+    x86_mov_rr32(cb, 12, 10);            /* keep low32(2*product) */
+    x86_mov_imm64(cb, 13, round_const);  /* + 2^31 for rounding */
+    x86_add_rr(cb, 10, 13);
+    x86_shift_imm(cb, 10, 2, 32); /* arithmetic >> 32 */
+    x86_mov_imm64(cb, 13, 0);
+    x86_sub_rr(cb, 13, 10); /* r13 = -r10 */
+    x86_mov_rr(cb, 10, 13);
+
+    x86_cmp_imm32_32(cb, 12, 0x80000000u);
+    to_no_tie_adjust = x86_jnz_rel32(cb);
+    x86_add_imm32(cb, 10, 1);
+    patch_rel32_at(cb->data, to_no_tie_adjust, cb->len);
+
+    patch_rel32_at(cb->data, to_after_sqrdmulh, cb->len);
+
+    /* r10 += signext(Rd_lane) */
+    x86_mov_r32_from_mem_base_disp32(cb, 13, 3, rd_disp);
+    x86_movsxd_rr(cb, 13, 13);
+    x86_add_rr(cb, 10, 13);
+
+    /* Saturate to signed 32-bit range. */
+    x86_mov_imm64(cb, 13, i32_max_u64);
+    x86_cmp_rr(cb, 10, 13);
+    to_check_low_sat = x86_jcc_rel32(cb, 0x8E); /* JLE */
+    x86_mov_rr(cb, 10, 13);
+    to_store = x86_jmp_rel32(cb);
+
+    patch_rel32_at(cb->data, to_check_low_sat, cb->len);
+    x86_mov_imm64(cb, 13, i32_min_u64);
+    x86_cmp_rr(cb, 10, 13);
+    to_store_after_low_check = x86_jcc_rel32(cb, 0x8D); /* JGE */
+    x86_mov_rr(cb, 10, 13);
+    patch_rel32_at(cb->data, to_store_after_low_check, cb->len);
+    patch_rel32_at(cb->data, to_store, cb->len);
+
+    /* Store saturated 32-bit lane back to Rd. */
+    x86_mov_mem_base_disp32_from_r32(cb, 3, 10, rd_disp);
+}
+
 static void emit_restore_rflags(CodeBuf *cb) {
     x86_mov_r_from_mem_base_disp32(cb, 10, 3, (int32_t)offsetof(CPUState, rflags));
     emit_load_rflags_from_reg(cb, 10);
@@ -1940,6 +2094,18 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
      */
     if ((insn & 0xFFFFF01Fu) == 0xD503201Fu) {
         return;
+    }
+
+    /*
+     * TinyDBT pseudo-op for ELF import callbacks:
+     * HLT #imm16 where imm16 high byte is 0xA5 and low byte is callback id.
+     */
+    if ((insn & 0xFFE0001Fu) == 0xD4400000u) {
+        uint16_t imm16 = (uint16_t)((insn >> 5) & 0xFFFFu);
+        if ((imm16 & 0xFF00u) == 0xA500u) {
+            emit_host_import_callback(cb, (uint8_t)(imm16 & 0xFFu));
+            return;
+        }
     }
 
     /*
@@ -4537,26 +4703,40 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         return;
     }
 
-    /* SQRDMLAH Vd.{2S,4S}, Vn.{2S,4S}, Vm.{2S,4S} */
-    if ((insn & 0xBFE0FC00u) == 0x2E808400u) {
-        unsigned q = (insn >> 30) & 1u;
-        unsigned rm = (insn >> 16) & 0x1Fu;
-        unsigned rn = (insn >> 5) & 0x1Fu;
-        unsigned rd = insn & 0x1Fu;
+    /* SQRDMLAH/SQRDMLSH Vd.{2S,4S}, Vn.{2S,4S}, Vm.{2S,4S} */
+    {
+        uint32_t sqrdml_tag = insn & 0xBFE0FC00u;
+        if (sqrdml_tag == 0x2E808400u || sqrdml_tag == 0x0EA08400u || sqrdml_tag == 0x2EA08400u) {
+            bool is_sub = (sqrdml_tag == 0x0EA08400u || sqrdml_tag == 0x2EA08400u);
+            unsigned q = (insn >> 30) & 1u;
+            unsigned rm = (insn >> 16) & 0x1Fu;
+            unsigned rn = (insn >> 5) & 0x1Fu;
+            unsigned rd = insn & 0x1Fu;
 
-        emit_preserve_guest_flags_begin(cb);
-        emit_sqrdmlah_lane32(cb, rd, rn, rm, 0u, 0u);
-        emit_sqrdmlah_lane32(cb, rd, rn, rm, 0u, 1u);
-        if (q) {
-            emit_sqrdmlah_lane32(cb, rd, rn, rm, 1u, 0u);
-            emit_sqrdmlah_lane32(cb, rd, rn, rm, 1u, 1u);
-        } else {
-            /* 2S form zeros the upper 64 bits of destination. */
-            x86_mov_imm64(cb, 10, 0);
-            x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rd, 1), 10);
+            emit_preserve_guest_flags_begin(cb);
+            if (is_sub) {
+                emit_sqrdmlsh_lane32(cb, rd, rn, rm, 0u, 0u);
+                emit_sqrdmlsh_lane32(cb, rd, rn, rm, 0u, 1u);
+            } else {
+                emit_sqrdmlah_lane32(cb, rd, rn, rm, 0u, 0u);
+                emit_sqrdmlah_lane32(cb, rd, rn, rm, 0u, 1u);
+            }
+            if (q) {
+                if (is_sub) {
+                    emit_sqrdmlsh_lane32(cb, rd, rn, rm, 1u, 0u);
+                    emit_sqrdmlsh_lane32(cb, rd, rn, rm, 1u, 1u);
+                } else {
+                    emit_sqrdmlah_lane32(cb, rd, rn, rm, 1u, 0u);
+                    emit_sqrdmlah_lane32(cb, rd, rn, rm, 1u, 1u);
+                }
+            } else {
+                /* 2S form zeros the upper 64 bits of destination. */
+                x86_mov_imm64(cb, 10, 0);
+                x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rd, 1), 10);
+            }
+            emit_preserve_guest_flags_end(cb);
+            return;
         }
-        emit_preserve_guest_flags_end(cb);
-        return;
     }
 
     /* AND/BIC/ORR/EOR Vd.{8B,16B}, Vn.{8B,16B}, Vm.{8B,16B} */
@@ -4628,6 +4808,66 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         return;
     }
 
+    /* STR Dt, [Xn|SP, #imm12*8] */
+    if ((insn & 0xFFC00000u) == 0xFD000000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        uint32_t imm12 = (insn >> 10) & 0xFFFu;
+        int32_t disp = (int32_t)(imm12 * 8u);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STR (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r(cb, 10, x86_rn, 13, disp);
+        return;
+    }
+
+    /* LDR Dt, [Xn|SP, #imm12*8] */
+    if ((insn & 0xFFC00000u) == 0xFD400000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        uint32_t imm12 = (insn >> 10) & 0xFFFu;
+        int32_t disp = (int32_t)(imm12 * 8u);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDR (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, disp);
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
+        return;
+    }
+
+    /* STR St, [Xn|SP, #imm12*4] */
+    if ((insn & 0xFFC00000u) == 0xBD000000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        uint32_t imm12 = (insn >> 10) & 0xFFFu;
+        int32_t disp = (int32_t)(imm12 * 4u);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STR (S)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r32(cb, 10, x86_rn, 13, disp);
+        return;
+    }
+
+    /* LDR St, [Xn|SP, #imm12*4] */
+    if ((insn & 0xFFC00000u) == 0xBD400000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        uint32_t imm12 = (insn >> 10) & 0xFFFu;
+        int32_t disp = (int32_t)(imm12 * 4u);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDR (S)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_index_disp32(cb, 13, 10, x86_rn, disp);
+        x86_mov_mem_base_disp32_from_r32(cb, 3, 13, state_v_qword_offset(rt, 0));
+        return;
+    }
+
     /* STR Qt, [Xn|SP, #imm12*16] */
     if ((insn & 0xFFC00000u) == 0x3D800000u) {
         unsigned rt = insn & 0x1Fu;
@@ -4659,6 +4899,90 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
         x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, disp + 8);
         x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 1), 13);
+        return;
+    }
+
+    /* STR Dt, [Xn|SP], #simm9 / [Xn|SP, #simm9]! (post/pre-index) */
+    if ((insn & 0xFFE00C00u) == 0xFC000400u || (insn & 0xFFE00C00u) == 0xFC000C00u) {
+        bool is_pre = (insn & 0x800u) != 0;
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STR (D, post/pre-index)");
+
+        if (is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "STR (D, post/pre-index)");
+        }
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, 0, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r(cb, 10, x86_rn, 13, 0);
+        if (!is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "STR (D, post/pre-index)");
+        }
+        return;
+    }
+
+    /* LDR Dt, [Xn|SP], #simm9 / [Xn|SP, #simm9]! (post/pre-index) */
+    if ((insn & 0xFFE00C00u) == 0xFC400400u || (insn & 0xFFE00C00u) == 0xFC400C00u) {
+        bool is_pre = (insn & 0x800u) != 0;
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDR (D, post/pre-index)");
+
+        if (is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDR (D, post/pre-index)");
+        }
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, 0, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, 0);
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
+        if (!is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDR (D, post/pre-index)");
+        }
+        return;
+    }
+
+    /* STR St, [Xn|SP], #simm9 / [Xn|SP, #simm9]! (post/pre-index) */
+    if ((insn & 0xFFE00C00u) == 0xBC000400u || (insn & 0xFFE00C00u) == 0xBC000C00u) {
+        bool is_pre = (insn & 0x800u) != 0;
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STR (S, post/pre-index)");
+
+        if (is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "STR (S, post/pre-index)");
+        }
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, 0, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r32(cb, 10, x86_rn, 13, 0);
+        if (!is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "STR (S, post/pre-index)");
+        }
+        return;
+    }
+
+    /* LDR St, [Xn|SP], #simm9 / [Xn|SP, #simm9]! (post/pre-index) */
+    if ((insn & 0xFFE00C00u) == 0xBC400400u || (insn & 0xFFE00C00u) == 0xBC400C00u) {
+        bool is_pre = (insn & 0x800u) != 0;
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDR (S, post/pre-index)");
+
+        if (is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDR (S, post/pre-index)");
+        }
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, 0, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_index_disp32(cb, 13, 10, x86_rn, 0);
+        x86_mov_mem_base_disp32_from_r32(cb, 3, 13, state_v_qword_offset(rt, 0));
+        if (!is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDR (S, post/pre-index)");
+        }
         return;
     }
 
@@ -4737,6 +5061,98 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
         x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, simm9 + 8);
         x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 1), 13);
+        return;
+    }
+
+    /* STUR Dt, [Xn|SP, #simm9] */
+    if ((insn & 0xFFC00000u) == 0xFC000000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STUR (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r(cb, 10, x86_rn, 13, simm9);
+        return;
+    }
+
+    /* LDUR Dt, [Xn|SP, #simm9] */
+    if ((insn & 0xFFC00000u) == 0xFC400000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDUR (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 8, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, simm9);
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
+        return;
+    }
+
+    /* STUR St, [Xn|SP, #simm9] */
+    if ((insn & 0xFFC00000u) == 0xBC000000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STUR (S)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r32(cb, 10, x86_rn, 13, simm9);
+        return;
+    }
+
+    /* LDUR St, [Xn|SP, #simm9] */
+    if ((insn & 0xFFC00000u) == 0xBC400000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDUR (S)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r32_from_mem_base_index_disp32(cb, 13, 10, x86_rn, simm9);
+        x86_mov_mem_base_disp32_from_r32(cb, 3, 13, state_v_qword_offset(rt, 0));
+        return;
+    }
+
+    /* STP Dt1, Dt2, [Xn|SP, #imm7*8] (signed offset) */
+    if ((insn & 0xFFC00000u) == 0x6D000000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        unsigned rt2 = (insn >> 10) & 0x1Fu;
+        int32_t simm7 = sign_extend32((insn >> 15) & 0x7Fu, 7);
+        int32_t disp = simm7 * 8;
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "STP (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 16, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt, 0));
+        x86_mov_mem_base_index_disp32_from_r(cb, 10, x86_rn, 13, disp);
+        x86_mov_r_from_mem_base_disp32(cb, 13, 3, state_v_qword_offset(rt2, 0));
+        x86_mov_mem_base_index_disp32_from_r(cb, 10, x86_rn, 13, disp + 8);
+        return;
+    }
+
+    /* LDP Dt1, Dt2, [Xn|SP, #imm7*8] (signed offset) */
+    if ((insn & 0xFFC00000u) == 0x6D400000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        unsigned rt2 = (insn >> 10) & 0x1Fu;
+        int32_t simm7 = sign_extend32((insn >> 15) & 0x7Fu, 7);
+        int32_t disp = simm7 * 8;
+        int x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 12, pc, "LDP (D)");
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 16, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, disp);
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt, 0), 13);
+        x86_mov_r_from_mem_base_index_disp32(cb, 13, 10, x86_rn, disp + 8);
+        x86_mov_mem_base_disp32_from_r(cb, 3, state_v_qword_offset(rt2, 0), 13);
         return;
     }
 
@@ -5409,6 +5825,38 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         return;
     }
 
+    if ((insn & 0xFFE00C00u) == 0x78800400u || (insn & 0xFFE00C00u) == 0x78800C00u) {
+        bool is_pre = (insn & 0x800u) != 0;
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rt = map_reg(rt);
+        int x86_rn;
+        int x86_dst;
+
+        if (rn != 31u && rt == rn) {
+            fprintf(stderr, "unsupported writeback alias of LDRSH (W, post/pre-index) at pc=%zu\n", pc);
+            exit(1);
+        }
+        x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 13, pc, "LDRSH (W, post/pre-index)");
+        x86_dst = (x86_rt >= 0) ? x86_rt : 12;
+
+        if (is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDRSH (W, post/pre-index)");
+        }
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, 0, 2, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem);
+        x86_movsx_r64_from_mem16_base_index_disp32(cb, x86_dst, 10, x86_rn, 0);
+        x86_mov_rr32(cb, x86_dst, x86_dst);
+        if (x86_rt < 0) {
+            writeback_guest_xreg_unless_zr(cb, rt, x86_dst, pc, "LDRSH (W, post/pre-index)");
+        }
+        if (!is_pre) {
+            emit_writeback_add_signed_imm_guest(cb, rn, x86_rn, simm9, pc, "LDRSH (W, post/pre-index)");
+        }
+        return;
+    }
+
     if ((insn & 0xFFE00C00u) == 0xB8800400u || (insn & 0xFFE00C00u) == 0xB8800C00u) {
         bool is_pre = (insn & 0x800u) != 0;
         unsigned rt = insn & 0x1Fu;
@@ -5788,6 +6236,47 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         return;
     }
 
+    /* LDURSH Wt, [Xn, #simm9] (unscaled, sign-extend halfword) */
+    if ((insn & 0xFFE00C00u) == 0x78800000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rt = map_reg(rt);
+        int x86_rn;
+        int x86_dst;
+        x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 13, pc, "LDURSH (W)");
+        x86_dst = (x86_rt >= 0) ? x86_rt : 12;
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 2, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem); /* r10 = guest base */
+        x86_movsx_r64_from_mem16_base_index_disp32(cb, x86_dst, 10, x86_rn, simm9);
+        x86_mov_rr32(cb, x86_dst, x86_dst);
+        if (x86_rt < 0) {
+            writeback_guest_xreg_unless_zr(cb, rt, x86_dst, pc, "LDURSH (W)");
+        }
+        return;
+    }
+
+    /* LDURSW Xt, [Xn, #simm9] (unscaled, sign-extend word) */
+    if ((insn & 0xFFE00C00u) == 0xB8800000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        int32_t simm9 = sign_extend32((insn >> 12) & 0x1FFu, 9);
+        int x86_rt = map_reg(rt);
+        int x86_rn;
+        int x86_dst;
+        x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 13, pc, "LDURSW");
+        x86_dst = (x86_rt >= 0) ? x86_rt : 12;
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, simm9, 4, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem); /* r10 = guest base */
+        x86_movsxd_r_from_mem_base_index_disp32(cb, x86_dst, 10, x86_rn, simm9);
+        if (x86_rt < 0) {
+            writeback_guest_xreg_unless_zr(cb, rt, x86_dst, pc, "LDURSW");
+        }
+        return;
+    }
+
     /* LDUR Xt, [Xn, #simm9] (unscaled, 64-bit) */
     if ((insn & 0xFFE00C00u) == 0xF8400000u) {
         unsigned rt = insn & 0x1Fu;
@@ -6062,6 +6551,28 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         x86_movsx_r64_from_mem16_base_index_disp32(cb, x86_dst, 10, x86_rn, disp);
         if (x86_rt < 0) {
             writeback_guest_xreg_unless_zr(cb, rt, x86_dst, pc, "LDRSH");
+        }
+        return;
+    }
+
+    /* LDRSH Wt, [Xn, #imm12] (unsigned immediate, sign-extend halfword) */
+    if ((insn & 0xFFC00000u) == 0x79800000u) {
+        unsigned rt = insn & 0x1Fu;
+        unsigned rn = (insn >> 5) & 0x1Fu;
+        uint32_t imm12 = (insn >> 10) & 0xFFFu;
+        int32_t disp = (int32_t)(imm12 * 2u);
+        int x86_rt = map_reg(rt);
+        int x86_rn;
+        int x86_dst;
+        x86_rn = materialize_guest_xreg_or_sp_read(cb, rn, 13, pc, "LDRSH (W)");
+        x86_dst = (x86_rt >= 0) ? x86_rt : 12;
+
+        emit_guest_mem_bounds_check(cb, oob_patches, x86_rn, disp, 2, pc);
+        x86_mov_imm64(cb, 10, (uint64_t)(uintptr_t)guest_mem); /* r10 = guest base */
+        x86_movsx_r64_from_mem16_base_index_disp32(cb, x86_dst, 10, x86_rn, disp);
+        x86_mov_rr32(cb, x86_dst, x86_dst);
+        if (x86_rt < 0) {
+            writeback_guest_xreg_unless_zr(cb, rt, x86_dst, pc, "LDRSH (W)");
         }
         return;
     }
@@ -7135,7 +7646,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         }
     }
 
-    /* UCVTF {Sd|Dd}, {Wn|Xn}. PoC note: high unsigned 64-bit range is approximate. */
+    /* UCVTF {Sd|Dd}, {Wn|Xn}. */
     {
         uint32_t op = insn & 0xFF3FFC00u;
         if (op == 0x1E230000u || op == 0x1E630000u || op == 0x9E230000u || op == 0x9E630000u) {
@@ -7146,19 +7657,59 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
             int x86_rn = materialize_guest_xreg_or_zr_read(cb, rn, 10, pc, "UCVTF");
             int32_t rd_disp = state_v_qword_offset(rd, 0);
 
-            if (is_double) {
-                if (is_64) {
+            if (is_64) {
+                /*
+                 * Convert full uint64 exactly to floating domain:
+                 *   if x < 2^63: cvtsi2s[d](x)
+                 *   else: cvtsi2s[d](x>>1) * 2 + (x&1)
+                 */
+                size_t fast_path_off;
+                size_t done_conv_off;
+
+                x86_mov_rr(cb, 10, x86_rn);
+                x86_test_rr(cb, 10, 10);
+                fast_path_off = x86_jcc_rel32(cb, 0x89); /* JNS */
+
+                /* High unsigned range [2^63, 2^64). */
+                x86_mov_rr(cb, 13, 10);
+                x86_mov_imm64(cb, 12, 1);
+                x86_and_rr(cb, 13, 12);      /* r13 = x & 1 */
+                x86_shift_imm(cb, 10, 1, 1); /* r10 = x >> 1 (logical) */
+                if (is_double) {
+                    x86_cvtsi2sd_xmm_from_r64(cb, 0, 10);
+                    x86_addsd_rr(cb, 0, 0);
+                    x86_cvtsi2sd_xmm_from_r64(cb, 1, 13);
+                    x86_addsd_rr(cb, 0, 1);
+                } else {
+                    x86_cvtsi2ss_xmm_from_r64(cb, 0, 10);
+                    x86_addss_rr(cb, 0, 0);
+                    x86_cvtsi2ss_xmm_from_r64(cb, 1, 13);
+                    x86_addss_rr(cb, 0, 1);
+                }
+                done_conv_off = x86_jmp_rel32(cb);
+
+                /* Low unsigned range [0, 2^63). */
+                patch_rel32_at(cb->data, fast_path_off, cb->len);
+                if (is_double) {
                     x86_cvtsi2sd_xmm_from_r64(cb, 0, x86_rn);
                 } else {
-                    x86_cvtsi2sd_xmm_from_r32(cb, 0, x86_rn);
+                    x86_cvtsi2ss_xmm_from_r64(cb, 0, x86_rn);
                 }
+
+                patch_rel32_at(cb->data, done_conv_off, cb->len);
+            } else {
+                /* Zero-extend Wn then use 64-bit signed conversion path. */
+                x86_mov_rr32(cb, 10, x86_rn);
+                if (is_double) {
+                    x86_cvtsi2sd_xmm_from_r64(cb, 0, 10);
+                } else {
+                    x86_cvtsi2ss_xmm_from_r64(cb, 0, 10);
+                }
+            }
+
+            if (is_double) {
                 x86_movsd_mem_base_disp32_from_xmm(cb, 3, 0, rd_disp);
             } else {
-                if (is_64) {
-                    x86_cvtsi2ss_xmm_from_r64(cb, 0, x86_rn);
-                } else {
-                    x86_cvtsi2ss_xmm_from_r32(cb, 0, x86_rn);
-                }
                 x86_movss_mem_base_disp32_from_xmm(cb, 3, 0, rd_disp);
             }
             return;
@@ -7195,7 +7746,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         }
     }
 
-    /* FCVTZU {Wd|Xd}, {Sn|Dn}. PoC note: high unsigned 64-bit range is approximate. */
+    /* FCVTZU {Wd|Xd}, {Sn|Dn}. */
     {
         uint32_t op = insn & 0xFF3FFC00u;
         if (op == 0x1E390000u || op == 0x1E790000u || op == 0x9E390000u || op == 0x9E790000u) {
@@ -7205,21 +7756,74 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
             bool is_64 = (insn & 0x80000000u) != 0u;
             int32_t rn_disp = state_v_qword_offset(rn, 0);
 
+            /*
+             * Handle unsigned high range explicitly:
+             * - 64-bit: threshold 2^63
+             * - 32-bit: threshold 2^31
+             *
+             * Below threshold we can use signed CVTT directly.
+             * Above/equal threshold: subtract threshold, CVTT, then add threshold back.
+             */
+            size_t high_path_off;
+            size_t done_conv_off;
+            uint64_t half_threshold = is_64 ? (1ull << 62) : (1ull << 30);
+
             if (is_double) {
                 x86_movsd_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
+                x86_mov_imm64(cb, 13, half_threshold);
+                x86_cvtsi2sd_xmm_from_r64(cb, 1, 13);
+                x86_addsd_rr(cb, 1, 1); /* xmm1 = threshold */
+                x86_ucomisd_rr(cb, 0, 1);
+            } else {
+                x86_movss_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
+                x86_mov_imm64(cb, 13, half_threshold);
+                x86_cvtsi2ss_xmm_from_r64(cb, 1, 13);
+                x86_addss_rr(cb, 1, 1); /* xmm1 = threshold */
+                x86_ucomiss_rr(cb, 0, 1);
+            }
+            high_path_off = x86_jcc_rel32(cb, 0x83); /* JAE */
+
+            /* Fast path: value < threshold */
+            if (is_double) {
                 if (is_64) {
                     x86_cvttsd2si_r64_from_xmm(cb, 10, 0);
                 } else {
                     x86_cvttsd2si_r32_from_xmm(cb, 10, 0);
                 }
             } else {
-                x86_movss_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
                 if (is_64) {
                     x86_cvttss2si_r64_from_xmm(cb, 10, 0);
                 } else {
                     x86_cvttss2si_r32_from_xmm(cb, 10, 0);
                 }
             }
+            done_conv_off = x86_jmp_rel32(cb);
+
+            /* High path: value >= threshold */
+            patch_rel32_at(cb->data, high_path_off, cb->len);
+            if (is_double) {
+                x86_subsd_rr(cb, 0, 1);
+                if (is_64) {
+                    x86_cvttsd2si_r64_from_xmm(cb, 10, 0);
+                } else {
+                    x86_cvttsd2si_r32_from_xmm(cb, 10, 0);
+                }
+            } else {
+                x86_subss_rr(cb, 0, 1);
+                if (is_64) {
+                    x86_cvttss2si_r64_from_xmm(cb, 10, 0);
+                } else {
+                    x86_cvttss2si_r32_from_xmm(cb, 10, 0);
+                }
+            }
+            if (is_64) {
+                x86_mov_imm64(cb, 13, (1ull << 63));
+                x86_add_rr(cb, 10, 13);
+            } else {
+                x86_add_imm32_32(cb, 10, 0x80000000u);
+            }
+
+            patch_rel32_at(cb->data, done_conv_off, cb->len);
             writeback_guest_xreg_unless_zr(cb, rd, 10, pc, "FCVTZU");
             return;
         }

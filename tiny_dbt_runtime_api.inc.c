@@ -362,6 +362,8 @@ void tiny_dbt_state_init(TinyDbtCpuState *state) {
         return;
     }
     memset(state, 0, sizeof(*state));
+    state->heap_base = 0x1000u;
+    state->heap_brk = state->heap_base;
 }
 
 static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRunOptions *opts, uint64_t *out_x0) {
@@ -406,6 +408,9 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
         max_attempts = opts->max_retries;
     }
 
+    uint8_t *prev_guest_mem = g_tiny_dbt_current_guest_mem;
+    g_tiny_dbt_current_guest_mem = dbt->guest_mem;
+
     typedef uint64_t (*JitFn)(CPUState *);
     JitFn fn = (JitFn)dbt->mem;
     uint64_t result = 0;
@@ -443,6 +448,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
                 fclose(f);
             }
         }
+        g_tiny_dbt_current_guest_mem = prev_guest_mem;
         return false;
     }
     state->nzcv = rflags_to_nzcv(state->rflags);
@@ -454,6 +460,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     if (out_x0) {
         *out_x0 = state->x[0];
     }
+    g_tiny_dbt_current_guest_mem = prev_guest_mem;
     return true;
 }
 
@@ -469,6 +476,15 @@ bool tiny_dbt_run_with_state(TinyDbt *dbt, TinyDbtCpuState *state, const TinyDbt
 
     CPUState *cpu_state = (CPUState *)state;
     cpu_state->x[30] = dbt->n_insn * 4u; /* top-level RET exits through the end-of-stream target */
+    if (cpu_state->heap_base == 0) {
+        cpu_state->heap_base = 0x1000u;
+    }
+    if (cpu_state->heap_brk < cpu_state->heap_base) {
+        cpu_state->heap_brk = cpu_state->heap_base;
+    }
+    if (cpu_state->heap_brk > (uint64_t)GUEST_MEM_SIZE) {
+        cpu_state->heap_brk = (uint64_t)GUEST_MEM_SIZE;
+    }
     if (cpu_state->dispatch_version == 0) {
         cpu_state->dispatch_version = dbt->dispatch_version;
     } else if (cpu_state->dispatch_version > dbt->dispatch_version) {
