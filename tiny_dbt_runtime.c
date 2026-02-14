@@ -105,7 +105,8 @@ enum {
     IMPORT_CB_GUEST_MEMCHR_X0_X1_X2 = 0x61,
     IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2 = 0x62,
     IMPORT_CB_GUEST_ATOI_X0 = 0x63,
-    IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64
+    IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64,
+    IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2 = 0x65
 };
 
 struct TinyDbt {
@@ -171,6 +172,12 @@ static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t m
 static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end);
 static bool guest_ascii_isspace(uint8_t ch);
 static int guest_digit_value(uint8_t ch);
+static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx);
+static void guest_snprintf_append_char(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, uint8_t ch);
+static void guest_snprintf_append_str(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, const char *s,
+                                      size_t len);
+static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t fmt_addr,
+                                      const CPUState *state);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -446,6 +453,188 @@ static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, 
         *out_value = (int64_t)acc;
     }
     return true;
+}
+
+static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx) {
+    if (!state || !arg_idx) {
+        return 0;
+    }
+    if (*arg_idx <= 7u) {
+        uint64_t value = state->x[*arg_idx];
+        (*arg_idx)++;
+        return value;
+    }
+    return 0;
+}
+
+static void guest_snprintf_append_char(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, uint8_t ch) {
+    if (!io_total || *io_total == UINT64_MAX) {
+        return;
+    }
+    if (mem && dst_size > 0 && *io_total < dst_size - 1u) {
+        mem[(size_t)(dst_addr + *io_total)] = ch;
+    }
+    (*io_total)++;
+}
+
+static void guest_snprintf_append_str(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, const char *s,
+                                      size_t len) {
+    if (!s || !io_total) {
+        return;
+    }
+    for (size_t i = 0; i < len; ++i) {
+        guest_snprintf_append_char(mem, dst_addr, dst_size, io_total, (uint8_t)s[i]);
+    }
+}
+
+static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t fmt_addr,
+                                      const CPUState *state) {
+    bool fmt_terminated = false;
+    uint64_t fmt_len = 0;
+    uint64_t total = 0;
+    unsigned arg_idx = 3;
+
+    if (!mem || !state || fmt_addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return 0;
+    }
+    if (dst_size > 0 && !guest_mem_range_valid(dst_addr, dst_size)) {
+        return 0;
+    }
+
+    fmt_len = guest_strnlen_scan(mem, fmt_addr, (uint64_t)GUEST_MEM_SIZE - fmt_addr, &fmt_terminated);
+    if (!fmt_terminated) {
+        return 0;
+    }
+
+    for (uint64_t i = 0; i < fmt_len; ++i) {
+        uint8_t ch = mem[(size_t)(fmt_addr + i)];
+        if (ch != '%') {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, ch);
+            continue;
+        }
+
+        if (i + 1u >= fmt_len) {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
+            continue;
+        }
+
+        if (mem[(size_t)(fmt_addr + i + 1u)] == '%') {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
+            i++;
+            continue;
+        }
+
+        uint64_t spec_start = i;
+        uint64_t j = i + 1u;
+        while (j < fmt_len) {
+            uint8_t spec_ch = mem[(size_t)(fmt_addr + j)];
+            if (spec_ch == '*') {
+                (void)guest_snprintf_next_arg(state, &arg_idx);
+                j++;
+                continue;
+            }
+            if (spec_ch == 'd' || spec_ch == 'i' || spec_ch == 'u' || spec_ch == 'x' || spec_ch == 'X' ||
+                spec_ch == 's' || spec_ch == 'c' || spec_ch == 'p') {
+                break;
+            }
+            if ((spec_ch >= 'a' && spec_ch <= 'z') || (spec_ch >= 'A' && spec_ch <= 'Z')) {
+                break;
+            }
+            j++;
+        }
+
+        if (j >= fmt_len) {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
+            for (uint64_t k = i + 1u; k < fmt_len; ++k) {
+                guest_snprintf_append_char(mem, dst_addr, dst_size, &total, mem[(size_t)(fmt_addr + k)]);
+            }
+            break;
+        }
+
+        uint8_t conv = mem[(size_t)(fmt_addr + j)];
+        switch (conv) {
+            case 's': {
+                uint64_t s_addr = guest_snprintf_next_arg(state, &arg_idx);
+                if (s_addr == 0) {
+                    static const char null_text[] = "(null)";
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, null_text, sizeof(null_text) - 1u);
+                } else if (s_addr >= (uint64_t)GUEST_MEM_SIZE) {
+                    static const char bad_text[] = "(badptr)";
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, bad_text, sizeof(bad_text) - 1u);
+                } else {
+                    bool s_term = false;
+                    uint64_t s_len =
+                        guest_strnlen_scan(mem, s_addr, (uint64_t)GUEST_MEM_SIZE - s_addr, &s_term);
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, (const char *)(mem + (size_t)s_addr),
+                                              (size_t)s_len);
+                }
+                break;
+            }
+            case 'c': {
+                uint8_t out_ch = (uint8_t)(guest_snprintf_next_arg(state, &arg_idx) & 0xFFu);
+                guest_snprintf_append_char(mem, dst_addr, dst_size, &total, out_ch);
+                break;
+            }
+            case 'd':
+            case 'i': {
+                char num[64];
+                int n = snprintf(num, sizeof(num), "%lld", (long long)(int64_t)guest_snprintf_next_arg(state, &arg_idx));
+                if (n > 0) {
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
+                }
+                break;
+            }
+            case 'u': {
+                char num[64];
+                int n = snprintf(num, sizeof(num), "%llu",
+                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
+                if (n > 0) {
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
+                }
+                break;
+            }
+            case 'x': {
+                char num[64];
+                int n = snprintf(num, sizeof(num), "%llx",
+                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
+                if (n > 0) {
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
+                }
+                break;
+            }
+            case 'X': {
+                char num[64];
+                int n = snprintf(num, sizeof(num), "%llX",
+                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
+                if (n > 0) {
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
+                }
+                break;
+            }
+            case 'p': {
+                char num[64];
+                int n = snprintf(num, sizeof(num), "0x%llx",
+                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
+                if (n > 0) {
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
+                }
+                break;
+            }
+            default:
+                for (uint64_t k = spec_start; k <= j; ++k) {
+                    guest_snprintf_append_char(mem, dst_addr, dst_size, &total, mem[(size_t)(fmt_addr + k)]);
+                }
+                break;
+        }
+
+        i = j;
+    }
+
+    if (dst_size > 0) {
+        uint64_t nul_off = (total < dst_size - 1u) ? total : (dst_size - 1u);
+        mem[(size_t)(dst_addr + nul_off)] = 0;
+    }
+    return total;
 }
 
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
@@ -846,6 +1035,11 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             }
             return (uint64_t)value;
         }
+        case IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2:
+            if (!g_tiny_dbt_current_guest_mem) {
+                return 0;
+            }
+            return guest_snprintf_format(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[2], state);
         default:
             return 0;
     }

@@ -66,7 +66,8 @@ enum {
     IMPORT_CB_GUEST_MEMCHR_X0_X1_X2 = 0x61,
     IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2 = 0x62,
     IMPORT_CB_GUEST_ATOI_X0 = 0x63,
-    IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64
+    IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64,
+    IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2 = 0x65
 };
 
 typedef struct {
@@ -275,6 +276,10 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_STRTOL_X0_X1_X2;
         return true;
     }
+    if (strcmp(kind, "guest_snprintf_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2;
+        return true;
+    }
     if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
         *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
         return true;
@@ -350,6 +355,8 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_atoi_x0";
         case IMPORT_CB_GUEST_STRTOL_X0_X1_X2:
             return "guest_strtol_x0_x1_x2";
+        case IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2:
+            return "guest_snprintf_x0_x1_x2";
         default:
             return "unknown";
     }
@@ -509,6 +516,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"strstr", IMPORT_CB_GUEST_STRSTR_X0_X1},
         {"atoi", IMPORT_CB_GUEST_ATOI_X0},
         {"strtol", IMPORT_CB_GUEST_STRTOL_X0_X1_X2},
+        {"snprintf", IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2},
     };
     static const struct {
         const char *name;
@@ -1876,7 +1884,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_snprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"
