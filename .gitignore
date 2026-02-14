@@ -2,6 +2,8 @@
 /tiny_dbt
 /tiny_dbt_runtime.o
 /runtime_api_demo
+/nativebridge_skeleton/libtiny_nativebridge_stub.so
+/nativebridge_skeleton/tiny_nb_loader_demo
 
 # Generated helper tools
 /scripts/*_tool

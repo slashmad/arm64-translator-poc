@@ -19,31 +19,32 @@ map_callback() {
         calloc) echo guest_calloc_x0_x1 ;;
         free) echo guest_free_x0 ;;
         realloc) echo guest_realloc_x0_x1 ;;
-        memcpy) echo guest_memcpy_x0_x1_x2 ;;
-        memset) echo guest_memset_x0_x1_x2 ;;
+        memcpy|__memcpy_chk) echo guest_memcpy_x0_x1_x2 ;;
+        memset|__memset_chk) echo guest_memset_x0_x1_x2 ;;
         memcmp) echo guest_memcmp_x0_x1_x2 ;;
-        memmove) echo guest_memmove_x0_x1_x2 ;;
+        memmove|__memmove_chk) echo guest_memmove_x0_x1_x2 ;;
         memchr) echo guest_memchr_x0_x1_x2 ;;
         memrchr) echo guest_memrchr_x0_x1_x2 ;;
-        strnlen) echo guest_strnlen_x0_x1 ;;
+        strnlen|__strlen_chk) echo guest_strnlen_x0_x1 ;;
         strlen) echo guest_strlen_x0 ;;
         strcmp) echo guest_strcmp_x0_x1 ;;
         strncmp) echo guest_strncmp_x0_x1_x2 ;;
         strcpy) echo guest_strcpy_x0_x1 ;;
         strncpy) echo guest_strncpy_x0_x1_x2 ;;
-        strchr) echo guest_strchr_x0_x1 ;;
+        strchr|__strchr_chk) echo guest_strchr_x0_x1 ;;
         strrchr) echo guest_strrchr_x0_x1 ;;
         strstr) echo guest_strstr_x0_x1 ;;
         atoi) echo guest_atoi_x0 ;;
         strtol) echo guest_strtol_x0_x1_x2 ;;
         strtod) echo guest_strtod_x0_x1 ;;
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
+        __vsnprintf_chk) echo guest_vsnprintf_chk_x0_x1_x4_x5 ;;
         vsnprintf) echo guest_vsnprintf_x0_x1_x2_x3 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
-        dlerror|__android_log_print|__android_log_assert|__android_log_write) echo ret_x0 ;;
+        dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint) echo ret_x0 ;;
         *) return 1 ;;
     esac
 }

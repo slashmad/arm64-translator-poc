@@ -110,7 +110,8 @@ enum {
     IMPORT_CB_GUEST_STRTOD_X0_X1 = 0x66,
     IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67,
     IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3 = 0x68,
-    IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69
+    IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69,
+    IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A
 };
 
 struct TinyDbt {
@@ -2013,6 +2014,14 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 return 0;
             }
             return guest_sscanf_scan(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], &tmp_state);
+        }
+        case IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5: {
+            CPUState tmp_state;
+            if (!g_tiny_dbt_current_guest_mem || !guest_prepare_vsnprintf_state(state, state->x[5], &tmp_state)) {
+                return 0;
+            }
+            return guest_snprintf_format(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[4],
+                                         &tmp_state);
         }
         default:
             return 0;

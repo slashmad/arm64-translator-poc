@@ -7,6 +7,8 @@ PROFILE_DIR="$ROOT_DIR/profiles"
 REPORT_DIR="$ROOT_DIR/reports"
 SUMMARY_FILE="$REPORT_DIR/kingshot_all_import_profiles_summary.txt"
 UNMAPPED_ALL_FILE="$REPORT_DIR/kingshot_all_unmapped_imports.txt"
+UNMAPPED_TOP_FILE="$REPORT_DIR/kingshot_all_unmapped_top_symbols.txt"
+COVERAGE_FILE="$REPORT_DIR/kingshot_all_import_coverage.txt"
 
 count_nonempty() {
     if [ ! -f "$1" ]; then
@@ -96,9 +98,29 @@ done < "$TMP_LIB_LIST"
 
 if [ -s "$UNMAPPED_ALL_FILE" ]; then
     sort -u -o "$UNMAPPED_ALL_FILE" "$UNMAPPED_ALL_FILE"
+    awk -F: '{print $2}' "$UNMAPPED_ALL_FILE" \
+        | sort \
+        | uniq -c \
+        | sort -nr \
+        | awk '{printf "%s %s\n", $1, $2}' > "$UNMAPPED_TOP_FILE"
 else
     echo "# all imports mapped" > "$UNMAPPED_ALL_FILE"
+    echo "# all imports mapped" > "$UNMAPPED_TOP_FILE"
 fi
+
+total_count=$((mapped_total + unmapped_total))
+if [ "$total_count" -gt 0 ]; then
+    coverage_pct=$(awk -v m="$mapped_total" -v t="$total_count" 'BEGIN { printf "%.2f", (100.0*m)/t }')
+else
+    coverage_pct="0.00"
+fi
+{
+    echo "libs=$lib_count"
+    echo "mapped=$mapped_total"
+    echo "unmapped=$unmapped_total"
+    echo "total=$total_count"
+    echo "coverage_percent=$coverage_pct"
+} > "$COVERAGE_FILE"
 
 echo "Generated Kingshot all-lib import profiles:"
 echo "  libs:      $lib_count"
@@ -106,3 +128,5 @@ echo "  mapped:    $mapped_total"
 echo "  unmapped:  $unmapped_total"
 echo "  summary:   $SUMMARY_FILE"
 echo "  unmapped:  $UNMAPPED_ALL_FILE"
+echo "  top:       $UNMAPPED_TOP_FILE"
+echo "  coverage:  $COVERAGE_FILE (${coverage_pct}%)"

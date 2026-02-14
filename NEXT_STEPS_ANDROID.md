@@ -52,7 +52,10 @@
 - Kingshot-importprofil kan nu autogenereras via `make run-kingshot-import-profile` (callbacks/stubs + unmapped-lista).
 - Kingshot-importprofilering kan nu köras för alla `arm64-v8a`-bibliotek via `make run-kingshot-import-profile-all` (sammanfattning + global unmapped-lista).
 - Kingshot smoke-runner finns nu via `make run-kingshot-smoke` (autoval av symbol + import trace + unsupported-logg).
+- Kingshot smoke-matrix finns nu via `make run-kingshot-smoke-matrix` (batch mot toppbibliotek med loggar + sammanfattning).
 - Import-callbacks täcker nu även `guest_vsnprintf_x0_x1_x2_x3` och `guest_vsscanf_x0_x1_x2`.
+- Import-callbacks täcker nu även `guest_vsnprintf_chk_x0_x1_x4_x5` för `__vsnprintf_chk`.
+- Kingshot-profiler mappar nu fler fortify/bionic-varianter (`__memcpy_chk`, `__memmove_chk`, `__memset_chk`, `__strlen_chk`, `__strchr_chk`, `__android_log_vprint`).
 - Edge-case regressioner finns nu för `snprintf` (`inf/nan`, trunc-edge) och `sscanf`/`strtod` (inverterad scanset, `nan(...)`).
 - Ett första NativeBridge/loader-skelett finns nu i `nativebridge_skeleton/` (`make run-nativebridge-skeleton-build`, `make run-nativebridge-skeleton-demo`).
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
