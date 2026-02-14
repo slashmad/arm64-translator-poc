@@ -88,6 +88,7 @@ typedef struct {
     ElfImportCallbackSpec *elf_import_callbacks;
     size_t n_elf_import_callbacks;
     size_t elf_import_callbacks_cap;
+    const char *elf_import_preset;
     const char *elf_import_trace_path;
     TinyDbtCpuState initial_state;
     bool has_initial_state;
@@ -431,6 +432,118 @@ static bool add_elf_import_callback_spec(CliOptions *opts, ElfImportCallbackSpec
         }
     }
     opts->elf_import_callbacks[opts->n_elf_import_callbacks++] = spec;
+    return true;
+}
+
+static bool has_elf_import_stub_name(const CliOptions *opts, const char *name) {
+    if (!opts || !name) {
+        return false;
+    }
+    for (size_t i = 0; i < opts->n_elf_import_stubs; ++i) {
+        if (opts->elf_import_stubs[i].name && strcmp(opts->elf_import_stubs[i].name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool has_elf_import_callback_name(const CliOptions *opts, const char *name) {
+    if (!opts || !name) {
+        return false;
+    }
+    for (size_t i = 0; i < opts->n_elf_import_callbacks; ++i) {
+        if (opts->elf_import_callbacks[i].name && strcmp(opts->elf_import_callbacks[i].name, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool add_elf_import_callback_name(CliOptions *opts, const char *name, uint8_t callback_id) {
+    size_t name_len = 0;
+    ElfImportCallbackSpec spec = {0};
+    if (!opts || !name || name[0] == '\0') {
+        return false;
+    }
+    if (has_elf_import_callback_name(opts, name) || has_elf_import_stub_name(opts, name)) {
+        return true; /* explicit user mapping wins */
+    }
+
+    name_len = strlen(name);
+    spec.name = malloc(name_len + 1u);
+    if (!spec.name) {
+        return false;
+    }
+    memcpy(spec.name, name, name_len + 1u);
+    spec.callback_id = callback_id;
+    if (!add_elf_import_callback_spec(opts, spec)) {
+        free(spec.name);
+        return false;
+    }
+    return true;
+}
+
+static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
+    static const struct {
+        const char *name;
+        uint8_t callback_id;
+    } libc_basic[] = {
+        {"malloc", IMPORT_CB_GUEST_ALLOC_X0},
+        {"calloc", IMPORT_CB_GUEST_CALLOC_X0_X1},
+        {"free", IMPORT_CB_GUEST_FREE_X0},
+        {"realloc", IMPORT_CB_GUEST_REALLOC_X0_X1},
+        {"memcpy", IMPORT_CB_GUEST_MEMCPY_X0_X1_X2},
+        {"memset", IMPORT_CB_GUEST_MEMSET_X0_X1_X2},
+        {"memcmp", IMPORT_CB_GUEST_MEMCMP_X0_X1_X2},
+        {"memmove", IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2},
+        {"memchr", IMPORT_CB_GUEST_MEMCHR_X0_X1_X2},
+        {"memrchr", IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2},
+        {"strnlen", IMPORT_CB_GUEST_STRNLEN_X0_X1},
+        {"strlen", IMPORT_CB_GUEST_STRLEN_X0},
+        {"strcmp", IMPORT_CB_GUEST_STRCMP_X0_X1},
+        {"strncmp", IMPORT_CB_GUEST_STRNCMP_X0_X1_X2},
+        {"strcpy", IMPORT_CB_GUEST_STRCPY_X0_X1},
+        {"strncpy", IMPORT_CB_GUEST_STRNCPY_X0_X1_X2},
+        {"strchr", IMPORT_CB_GUEST_STRCHR_X0_X1},
+        {"strrchr", IMPORT_CB_GUEST_STRRCHR_X0_X1},
+        {"strstr", IMPORT_CB_GUEST_STRSTR_X0_X1},
+        {"atoi", IMPORT_CB_GUEST_ATOI_X0},
+        {"strtol", IMPORT_CB_GUEST_STRTOL_X0_X1_X2},
+    };
+    static const struct {
+        const char *name;
+        uint8_t callback_id;
+    } android_extra[] = {
+        {"dlopen", IMPORT_CB_NONNULL_X0},
+        {"dlsym", IMPORT_CB_RET_SP},
+        {"dlerror", IMPORT_CB_RET_X0},
+        {"__android_log_print", IMPORT_CB_RET_X0},
+    };
+
+    if (!opts || !preset || preset[0] == '\0') {
+        return false;
+    }
+
+    if (strcmp(preset, "libc-basic") != 0 && strcmp(preset, "android-basic") != 0) {
+        fprintf(stderr, "unknown value for --elf-import-preset: %s (expected libc-basic or android-basic)\n", preset);
+        return false;
+    }
+
+    for (size_t i = 0; i < sizeof(libc_basic) / sizeof(libc_basic[0]); ++i) {
+        if (!add_elf_import_callback_name(opts, libc_basic[i].name, libc_basic[i].callback_id)) {
+            fprintf(stderr, "out of memory while applying --elf-import-preset\n");
+            return false;
+        }
+    }
+
+    if (strcmp(preset, "android-basic") == 0) {
+        for (size_t i = 0; i < sizeof(android_extra) / sizeof(android_extra[0]); ++i) {
+            if (!add_elf_import_callback_name(opts, android_extra[i].name, android_extra[i].callback_id)) {
+                fprintf(stderr, "out of memory while applying --elf-import-preset\n");
+                return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -1764,6 +1877,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
             "  --elf-import-callback <sym=op>  host callback op (ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2)\n"
+            "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"
             "  --set-reg <name=value>          set initial register/state (x0..x30, sp, pc, nzcv, heap_*)\n"
@@ -1952,6 +2066,23 @@ static bool parse_cli_options(int argc, char **argv, CliOptions *opts) {
                 fprintf(stderr, "out of memory while parsing --elf-import-callback\n");
                 return false;
             }
+            continue;
+        }
+        if (strncmp(arg, "--elf-import-preset=", 20) == 0) {
+            const char *value = arg + 20;
+            if (value[0] == '\0') {
+                fprintf(stderr, "missing value for --elf-import-preset\n");
+                return false;
+            }
+            opts->elf_import_preset = value;
+            continue;
+        }
+        if (strcmp(arg, "--elf-import-preset") == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing value for --elf-import-preset\n");
+                return false;
+            }
+            opts->elf_import_preset = argv[++i];
             continue;
         }
         if (strncmp(arg, "--elf-import-trace=", 19) == 0) {
@@ -2273,6 +2404,12 @@ int main(int argc, char **argv) {
         rc = 2;
         goto out;
     }
+    if (opts.elf_import_preset && !opts.elf_file) {
+        fprintf(stderr, "--elf-import-preset requires --elf-file/--elf-symbol\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
     if (opts.elf_import_trace_path && !opts.elf_file) {
         fprintf(stderr, "--elf-import-trace requires --elf-file/--elf-symbol\n");
         print_usage(stderr, argv[0]);
@@ -2288,6 +2425,10 @@ int main(int argc, char **argv) {
     if (!opts.code_file && !opts.elf_file && opts.first_opcode_arg >= argc) {
         fprintf(stderr, "missing A64 opcode list\n");
         print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
+    if (opts.elf_import_preset && !apply_elf_import_preset(&opts, opts.elf_import_preset)) {
         rc = 2;
         goto out;
     }

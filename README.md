@@ -62,6 +62,7 @@ Run from ELF symbol:
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
 - `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`).
+- `--elf-import-preset <name>`: apply built-in callback sets (`libc-basic`, `android-basic`).
 - `--elf-import-trace <path>`: append per-symbol import patch details for ELF branch rewrites.
 - `--set-reg <name=value>`: initialize registers/state, including `heap_base`, `heap_brk`, `heap_last_ptr`, `heap_last_size`.
 - `--trace-state`: print compact state before/after run.
@@ -84,6 +85,7 @@ Environment alternatives:
 - ELF-loaded symbols rewrite out-of-range immediate `B/BL` targets to local return stubs.
 - With `--elf-import-stub`, known PLT imports can get symbol-specific fixed return values.
 - With `--elf-import-callback`, known PLT imports can run host callback ops and return computed `X0`.
+- With `--elf-import-preset`, common import symbols are mapped automatically (without overriding explicit `--elf-import-stub`/`--elf-import-callback` entries).
 - `guest_calloc_x0_x1` allocates `x0*x1` bytes on the guest heap (16-byte aligned) and zero-fills the allocated range.
 - `guest_realloc_x0_x1` resizes only the latest guest-heap allocation (PoC top-of-heap behavior).
 - `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, and `guest_memmove_x0_x1_x2` modify guest memory using `x0/x1/x2` as `dst/src-or-value/len`.
@@ -117,6 +119,7 @@ make run-elf-import-stub-example
 make run-import-callback-retx1-example
 make run-elf-import-callback-example
 make run-elf-import-trace-example
+make run-elf-import-preset-example
 make run-import-callback-alloc-example
 make run-import-callback-free-example
 make run-import-callback-alloc-free-example
