@@ -98,7 +98,9 @@ enum {
     IMPORT_CB_GUEST_STRNCMP_X0_X1_X2 = 0x5B,
     IMPORT_CB_GUEST_STRCPY_X0_X1 = 0x5C,
     IMPORT_CB_GUEST_STRNCPY_X0_X1_X2 = 0x5D,
-    IMPORT_CB_GUEST_STRCHR_X0_X1 = 0x5E
+    IMPORT_CB_GUEST_STRCHR_X0_X1 = 0x5E,
+    IMPORT_CB_GUEST_STRRCHR_X0_X1 = 0x5F,
+    IMPORT_CB_GUEST_STRSTR_X0_X1 = 0x60
 };
 
 struct TinyDbt {
@@ -615,6 +617,64 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 }
                 if (ch == 0) {
                     break;
+                }
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_STRRCHR_X0_X1: {
+            uint64_t addr = state->x[0];
+            uint8_t needle = (uint8_t)(state->x[1] & 0xFFu);
+            uint64_t i = 0;
+            uint64_t last = 0;
+            bool found = false;
+
+            if (!g_tiny_dbt_current_guest_mem || addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+            for (i = 0; addr + i < (uint64_t)GUEST_MEM_SIZE; ++i) {
+                uint8_t ch = g_tiny_dbt_current_guest_mem[(size_t)(addr + i)];
+                if (ch == needle) {
+                    last = addr + i;
+                    found = true;
+                }
+                if (ch == 0) {
+                    return found ? last : 0;
+                }
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_STRSTR_X0_X1: {
+            uint64_t hay_addr = state->x[0];
+            uint64_t needle_addr = state->x[1];
+            bool hay_term = false;
+            bool needle_term = false;
+            uint64_t hay_len = 0;
+            uint64_t needle_len = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || hay_addr >= (uint64_t)GUEST_MEM_SIZE ||
+                needle_addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+
+            hay_len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, hay_addr, (uint64_t)GUEST_MEM_SIZE - hay_addr,
+                                         &hay_term);
+            needle_len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, needle_addr,
+                                            (uint64_t)GUEST_MEM_SIZE - needle_addr, &needle_term);
+            if (!hay_term || !needle_term) {
+                return 0;
+            }
+            if (needle_len == 0) {
+                return hay_addr;
+            }
+            if (hay_len < needle_len) {
+                return 0;
+            }
+
+            for (uint64_t pos = 0; pos <= hay_len - needle_len; ++pos) {
+                const uint8_t *hay = g_tiny_dbt_current_guest_mem + (size_t)(hay_addr + pos);
+                const uint8_t *needle = g_tiny_dbt_current_guest_mem + (size_t)needle_addr;
+                if (memcmp(hay, needle, (size_t)needle_len) == 0) {
+                    return hay_addr + pos;
                 }
             }
             return 0;

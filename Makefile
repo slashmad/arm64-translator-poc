@@ -31,7 +31,7 @@ CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: run-swp64-sp-base-example run-ldadd64-sp-base-example run-cas64-success-sp-base-example run-cas64-fail-sp-base-example run-casp64-success-sp-base-example run-casp64-fail-sp-base-example
 .PHONY: run-spill-ldxr-stxr64-sp-base-example run-spill-stxr64-fail-sp-base-example run-spill-ldaxr-stlxr64-sp-base-example run-spill-stlxr64-fail-sp-base-example run-spill-ldar-stlr64-sp-base-example run-spill-ldar-stlr32-sp-base-example run-spill-swp64-sp-base-example run-spill-ldadd64-sp-base-example run-spill-cas64-success-sp-base-example run-spill-cas64-fail-sp-base-example run-spill-casp64-success-sp-base-example run-spill-casp64-fail-sp-base-example
 .PHONY: run-spill-casa64-success-sp-base-example run-spill-casl64-fail-sp-base-example run-spill-casal32-rtx0-sp-base-example run-spill-casb-success-sp-base-example run-spill-caslb-fail-sp-base-example run-spill-casah-success-sp-base-example
-.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example
+.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example
 
 all: tiny_dbt
 
@@ -737,6 +737,21 @@ run-import-callback-strchr-miss-example: tiny_dbt
 
 run-import-callback-strchr-nul-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x00 --mem-write 0x20:68656C6C6F00 D454ABC0 D65F03C0
+
+run-import-callback-strrchr-hit-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x61 --mem-write 0x20:62616E616E617300 D454ABE0 D65F03C0
+
+run-import-callback-strrchr-miss-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x7A --mem-write 0x20:62616E616E617300 D454ABE0 D65F03C0
+
+run-import-callback-strstr-hit-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x40 --mem-write 0x20:62616E616E6100 --mem-write 0x40:6E616E00 D454AC00 D65F03C0
+
+run-import-callback-strstr-miss-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x40 --mem-write 0x20:62616E616E6100 --mem-write 0x40:78797A00 D454AC00 D65F03C0
+
+run-import-callback-strstr-empty-needle-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x40 --mem-write 0x20:62616E616E6100 --mem-write 0x40:00 D454AC00 D65F03C0
 
 run-orrreg64-zr-alias-example: tiny_dbt
 	./tiny_dbt D2800541 AA0103E0 D65F03C0
