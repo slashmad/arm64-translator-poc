@@ -106,7 +106,9 @@ enum {
     IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2 = 0x62,
     IMPORT_CB_GUEST_ATOI_X0 = 0x63,
     IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64,
-    IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2 = 0x65
+    IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2 = 0x65,
+    IMPORT_CB_GUEST_STRTOD_X0_X1 = 0x66,
+    IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67
 };
 
 struct TinyDbt {
@@ -160,6 +162,32 @@ typedef struct {
     size_t cap;
 } OffPatchVec;
 
+typedef enum {
+    GUEST_FMT_LEN_NONE = 0,
+    GUEST_FMT_LEN_HH,
+    GUEST_FMT_LEN_H,
+    GUEST_FMT_LEN_L,
+    GUEST_FMT_LEN_LL,
+    GUEST_FMT_LEN_J,
+    GUEST_FMT_LEN_Z,
+    GUEST_FMT_LEN_T,
+    GUEST_FMT_LEN_CAP_L
+} GuestFmtLength;
+
+typedef struct {
+    bool flag_left;
+    bool flag_plus;
+    bool flag_space;
+    bool flag_alt;
+    bool flag_zero;
+    bool width_specified;
+    int width;
+    bool precision_specified;
+    int precision;
+    GuestFmtLength length;
+    uint8_t conv;
+} GuestPrintfSpec;
+
 static void patch_rel32_at(uint8_t *out, size_t imm_off, size_t target_off);
 static void emit_preserve_guest_flags_begin(CodeBuf *cb);
 static void emit_preserve_guest_flags_end(CodeBuf *cb);
@@ -172,12 +200,23 @@ static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t m
 static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end);
 static bool guest_ascii_isspace(uint8_t ch);
 static int guest_digit_value(uint8_t ch);
+static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, size_t len);
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx);
+static uint64_t guest_sscanf_next_arg(const CPUState *state, unsigned *arg_idx);
+static void guest_snprintf_add_total(uint64_t *io_total, uint64_t add);
 static void guest_snprintf_append_char(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, uint8_t ch);
 static void guest_snprintf_append_str(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, const char *s,
                                       size_t len);
+static bool guest_snprintf_build_format(char *out, size_t out_cap, const GuestPrintfSpec *spec, char conv,
+                                        const char *len_override);
+static int64_t guest_snprintf_signed_arg(uint64_t raw, GuestFmtLength len);
+static uint64_t guest_snprintf_unsigned_arg(uint64_t raw, GuestFmtLength len);
 static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t fmt_addr,
                                       const CPUState *state);
+static bool guest_parse_strtod(const uint8_t *mem, uint64_t addr, double *out_value, uint64_t *out_end);
+static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value);
+static bool guest_sscanf_store_unsigned(uint8_t *mem, uint64_t addr, GuestFmtLength len, uint64_t value);
+static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -455,6 +494,14 @@ static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, 
     return true;
 }
 
+static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, size_t len) {
+    if (!mem || !src || len == 0 || !guest_mem_range_valid(addr, (uint64_t)len)) {
+        return false;
+    }
+    memcpy(mem + (size_t)addr, src, len);
+    return true;
+}
+
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx) {
     if (!state || !arg_idx) {
         return 0;
@@ -467,14 +514,37 @@ static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx
     return 0;
 }
 
+static uint64_t guest_sscanf_next_arg(const CPUState *state, unsigned *arg_idx) {
+    if (!state || !arg_idx) {
+        return 0;
+    }
+    if (*arg_idx <= 7u) {
+        uint64_t value = state->x[*arg_idx];
+        (*arg_idx)++;
+        return value;
+    }
+    return 0;
+}
+
+static void guest_snprintf_add_total(uint64_t *io_total, uint64_t add) {
+    if (!io_total || add == 0) {
+        return;
+    }
+    if (*io_total > UINT64_MAX - add) {
+        *io_total = UINT64_MAX;
+        return;
+    }
+    *io_total += add;
+}
+
 static void guest_snprintf_append_char(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, uint8_t ch) {
-    if (!io_total || *io_total == UINT64_MAX) {
+    if (!io_total) {
         return;
     }
     if (mem && dst_size > 0 && *io_total < dst_size - 1u) {
         mem[(size_t)(dst_addr + *io_total)] = ch;
     }
-    (*io_total)++;
+    guest_snprintf_add_total(io_total, 1u);
 }
 
 static void guest_snprintf_append_str(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t *io_total, const char *s,
@@ -487,11 +557,136 @@ static void guest_snprintf_append_str(uint8_t *mem, uint64_t dst_addr, uint64_t 
     }
 }
 
+static const char *guest_fmt_length_suffix(GuestFmtLength len) {
+    switch (len) {
+        case GUEST_FMT_LEN_HH:
+            return "hh";
+        case GUEST_FMT_LEN_H:
+            return "h";
+        case GUEST_FMT_LEN_L:
+            return "l";
+        case GUEST_FMT_LEN_LL:
+            return "ll";
+        case GUEST_FMT_LEN_J:
+            return "j";
+        case GUEST_FMT_LEN_Z:
+            return "z";
+        case GUEST_FMT_LEN_T:
+            return "t";
+        case GUEST_FMT_LEN_CAP_L:
+            return "L";
+        case GUEST_FMT_LEN_NONE:
+        default:
+            return "";
+    }
+}
+
+static bool guest_snprintf_build_format(char *out, size_t out_cap, const GuestPrintfSpec *spec, char conv,
+                                        const char *len_override) {
+    char flags[8];
+    char width_buf[32];
+    char prec_buf[32];
+    const char *len = NULL;
+    size_t fi = 0;
+    int n = 0;
+
+    if (!out || out_cap == 0 || !spec) {
+        return false;
+    }
+
+    flags[0] = '\0';
+    if (spec->flag_left && fi < sizeof(flags) - 1u) {
+        flags[fi++] = '-';
+    }
+    if (spec->flag_plus && fi < sizeof(flags) - 1u) {
+        flags[fi++] = '+';
+    }
+    if (spec->flag_space && fi < sizeof(flags) - 1u) {
+        flags[fi++] = ' ';
+    }
+    if (spec->flag_alt && fi < sizeof(flags) - 1u) {
+        flags[fi++] = '#';
+    }
+    if (spec->flag_zero && fi < sizeof(flags) - 1u) {
+        flags[fi++] = '0';
+    }
+    flags[fi] = '\0';
+
+    width_buf[0] = '\0';
+    if (spec->width_specified) {
+        n = snprintf(width_buf, sizeof(width_buf), "%d", spec->width > 0 ? spec->width : 0);
+        if (n < 0 || (size_t)n >= sizeof(width_buf)) {
+            return false;
+        }
+    }
+
+    prec_buf[0] = '\0';
+    if (spec->precision_specified) {
+        n = snprintf(prec_buf, sizeof(prec_buf), ".%d", spec->precision >= 0 ? spec->precision : 0);
+        if (n < 0 || (size_t)n >= sizeof(prec_buf)) {
+            return false;
+        }
+    }
+
+    len = len_override ? len_override : guest_fmt_length_suffix(spec->length);
+    n = snprintf(out, out_cap, "%%%s%s%s%s%c", flags, width_buf, prec_buf, len, conv);
+    return n > 0 && (size_t)n < out_cap;
+}
+
+static int64_t guest_snprintf_signed_arg(uint64_t raw, GuestFmtLength len) {
+    switch (len) {
+        case GUEST_FMT_LEN_HH:
+            return (int8_t)raw;
+        case GUEST_FMT_LEN_H:
+            return (int16_t)raw;
+        case GUEST_FMT_LEN_L:
+            return (long)(int64_t)raw;
+        case GUEST_FMT_LEN_LL:
+            return (long long)(int64_t)raw;
+        case GUEST_FMT_LEN_J:
+            return (intmax_t)(int64_t)raw;
+        case GUEST_FMT_LEN_Z:
+            return (ssize_t)(int64_t)raw;
+        case GUEST_FMT_LEN_T:
+            return (ptrdiff_t)(int64_t)raw;
+        case GUEST_FMT_LEN_CAP_L:
+            return (long long)(int64_t)raw;
+        case GUEST_FMT_LEN_NONE:
+        default:
+            return (int32_t)raw;
+    }
+}
+
+static uint64_t guest_snprintf_unsigned_arg(uint64_t raw, GuestFmtLength len) {
+    switch (len) {
+        case GUEST_FMT_LEN_HH:
+            return (uint8_t)raw;
+        case GUEST_FMT_LEN_H:
+            return (uint16_t)raw;
+        case GUEST_FMT_LEN_L:
+            return (unsigned long)raw;
+        case GUEST_FMT_LEN_LL:
+            return (unsigned long long)raw;
+        case GUEST_FMT_LEN_J:
+            return (uintmax_t)raw;
+        case GUEST_FMT_LEN_Z:
+            return (size_t)raw;
+        case GUEST_FMT_LEN_T:
+            return (uint64_t)(ptrdiff_t)raw;
+        case GUEST_FMT_LEN_CAP_L:
+            return (unsigned long long)raw;
+        case GUEST_FMT_LEN_NONE:
+        default:
+            return (uint32_t)raw;
+    }
+}
+
 static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t dst_size, uint64_t fmt_addr,
                                       const CPUState *state) {
     bool fmt_terminated = false;
     uint64_t fmt_len = 0;
     uint64_t total = 0;
+    uint64_t i = 0;
     unsigned arg_idx = 3;
 
     if (!mem || !state || fmt_addr >= (uint64_t)GUEST_MEM_SIZE) {
@@ -506,128 +701,266 @@ static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t 
         return 0;
     }
 
-    for (uint64_t i = 0; i < fmt_len; ++i) {
+    while (i < fmt_len) {
         uint8_t ch = mem[(size_t)(fmt_addr + i)];
         if (ch != '%') {
             guest_snprintf_append_char(mem, dst_addr, dst_size, &total, ch);
-            continue;
-        }
-
-        if (i + 1u >= fmt_len) {
-            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
-            continue;
-        }
-
-        if (mem[(size_t)(fmt_addr + i + 1u)] == '%') {
-            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
             i++;
             continue;
         }
 
         uint64_t spec_start = i;
-        uint64_t j = i + 1u;
-        while (j < fmt_len) {
-            uint8_t spec_ch = mem[(size_t)(fmt_addr + j)];
-            if (spec_ch == '*') {
-                (void)guest_snprintf_next_arg(state, &arg_idx);
-                j++;
-                continue;
-            }
-            if (spec_ch == 'd' || spec_ch == 'i' || spec_ch == 'u' || spec_ch == 'x' || spec_ch == 'X' ||
-                spec_ch == 's' || spec_ch == 'c' || spec_ch == 'p') {
-                break;
-            }
-            if ((spec_ch >= 'a' && spec_ch <= 'z') || (spec_ch >= 'A' && spec_ch <= 'Z')) {
-                break;
-            }
-            j++;
-        }
+        GuestPrintfSpec spec = {0};
+        bool parsed = true;
 
-        if (j >= fmt_len) {
+        i++;
+        if (i >= fmt_len) {
             guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
-            for (uint64_t k = i + 1u; k < fmt_len; ++k) {
-                guest_snprintf_append_char(mem, dst_addr, dst_size, &total, mem[(size_t)(fmt_addr + k)]);
-            }
             break;
         }
-
-        uint8_t conv = mem[(size_t)(fmt_addr + j)];
-        switch (conv) {
-            case 's': {
-                uint64_t s_addr = guest_snprintf_next_arg(state, &arg_idx);
-                if (s_addr == 0) {
-                    static const char null_text[] = "(null)";
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, null_text, sizeof(null_text) - 1u);
-                } else if (s_addr >= (uint64_t)GUEST_MEM_SIZE) {
-                    static const char bad_text[] = "(badptr)";
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, bad_text, sizeof(bad_text) - 1u);
-                } else {
-                    bool s_term = false;
-                    uint64_t s_len =
-                        guest_strnlen_scan(mem, s_addr, (uint64_t)GUEST_MEM_SIZE - s_addr, &s_term);
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, (const char *)(mem + (size_t)s_addr),
-                                              (size_t)s_len);
-                }
-                break;
-            }
-            case 'c': {
-                uint8_t out_ch = (uint8_t)(guest_snprintf_next_arg(state, &arg_idx) & 0xFFu);
-                guest_snprintf_append_char(mem, dst_addr, dst_size, &total, out_ch);
-                break;
-            }
-            case 'd':
-            case 'i': {
-                char num[64];
-                int n = snprintf(num, sizeof(num), "%lld", (long long)(int64_t)guest_snprintf_next_arg(state, &arg_idx));
-                if (n > 0) {
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
-                }
-                break;
-            }
-            case 'u': {
-                char num[64];
-                int n = snprintf(num, sizeof(num), "%llu",
-                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
-                if (n > 0) {
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
-                }
-                break;
-            }
-            case 'x': {
-                char num[64];
-                int n = snprintf(num, sizeof(num), "%llx",
-                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
-                if (n > 0) {
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
-                }
-                break;
-            }
-            case 'X': {
-                char num[64];
-                int n = snprintf(num, sizeof(num), "%llX",
-                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
-                if (n > 0) {
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
-                }
-                break;
-            }
-            case 'p': {
-                char num[64];
-                int n = snprintf(num, sizeof(num), "0x%llx",
-                                 (unsigned long long)guest_snprintf_next_arg(state, &arg_idx));
-                if (n > 0) {
-                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, num, (size_t)n);
-                }
-                break;
-            }
-            default:
-                for (uint64_t k = spec_start; k <= j; ++k) {
-                    guest_snprintf_append_char(mem, dst_addr, dst_size, &total, mem[(size_t)(fmt_addr + k)]);
-                }
-                break;
+        if (mem[(size_t)(fmt_addr + i)] == '%') {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, '%');
+            i++;
+            continue;
         }
 
-        i = j;
+        while (i < fmt_len) {
+            uint8_t f = mem[(size_t)(fmt_addr + i)];
+            if (f == '-') {
+                spec.flag_left = true;
+            } else if (f == '+') {
+                spec.flag_plus = true;
+            } else if (f == ' ') {
+                spec.flag_space = true;
+            } else if (f == '#') {
+                spec.flag_alt = true;
+            } else if (f == '0') {
+                spec.flag_zero = true;
+            } else {
+                break;
+            }
+            i++;
+        }
+
+        if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == '*') {
+            int w = (int)(int64_t)guest_snprintf_next_arg(state, &arg_idx);
+            spec.width_specified = true;
+            if (w < 0) {
+                spec.flag_left = true;
+                if (w == INT_MIN) {
+                    spec.width = INT_MAX;
+                } else {
+                    spec.width = -w;
+                }
+            } else {
+                spec.width = w;
+            }
+            i++;
+        } else {
+            int w = 0;
+            bool saw = false;
+            while (i < fmt_len) {
+                uint8_t d = mem[(size_t)(fmt_addr + i)];
+                if (d < '0' || d > '9') {
+                    break;
+                }
+                saw = true;
+                if (w <= INT_MAX / 10) {
+                    w *= 10;
+                    if (w <= INT_MAX - (int)(d - '0')) {
+                        w += (int)(d - '0');
+                    } else {
+                        w = INT_MAX;
+                    }
+                } else {
+                    w = INT_MAX;
+                }
+                i++;
+            }
+            if (saw) {
+                spec.width_specified = true;
+                spec.width = w;
+            }
+        }
+
+        if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == '.') {
+            i++;
+            spec.precision_specified = true;
+            spec.precision = 0;
+            if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == '*') {
+                int p = (int)(int64_t)guest_snprintf_next_arg(state, &arg_idx);
+                if (p < 0) {
+                    spec.precision_specified = false;
+                } else {
+                    spec.precision = p;
+                }
+                i++;
+            } else {
+                int p = 0;
+                while (i < fmt_len) {
+                    uint8_t d = mem[(size_t)(fmt_addr + i)];
+                    if (d < '0' || d > '9') {
+                        break;
+                    }
+                    if (p <= INT_MAX / 10) {
+                        p *= 10;
+                        if (p <= INT_MAX - (int)(d - '0')) {
+                            p += (int)(d - '0');
+                        } else {
+                            p = INT_MAX;
+                        }
+                    } else {
+                        p = INT_MAX;
+                    }
+                    i++;
+                }
+                spec.precision = p;
+            }
+        }
+
+        if (i + 1u < fmt_len && mem[(size_t)(fmt_addr + i)] == 'h' && mem[(size_t)(fmt_addr + i + 1u)] == 'h') {
+            spec.length = GUEST_FMT_LEN_HH;
+            i += 2u;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 'h') {
+            spec.length = GUEST_FMT_LEN_H;
+            i++;
+        } else if (i + 1u < fmt_len && mem[(size_t)(fmt_addr + i)] == 'l' && mem[(size_t)(fmt_addr + i + 1u)] == 'l') {
+            spec.length = GUEST_FMT_LEN_LL;
+            i += 2u;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 'l') {
+            spec.length = GUEST_FMT_LEN_L;
+            i++;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 'j') {
+            spec.length = GUEST_FMT_LEN_J;
+            i++;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 'z') {
+            spec.length = GUEST_FMT_LEN_Z;
+            i++;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 't') {
+            spec.length = GUEST_FMT_LEN_T;
+            i++;
+        } else if (i < fmt_len && mem[(size_t)(fmt_addr + i)] == 'L') {
+            spec.length = GUEST_FMT_LEN_CAP_L;
+            i++;
+        }
+
+        if (i >= fmt_len) {
+            parsed = false;
+        } else {
+            spec.conv = mem[(size_t)(fmt_addr + i)];
+        }
+
+        if (parsed) {
+            char fmt_buf[128];
+            char rendered[512];
+            int n = -1;
+            bool supported = true;
+
+            switch (spec.conv) {
+                case 'd':
+                case 'i': {
+                    int64_t sval = guest_snprintf_signed_arg(guest_snprintf_next_arg(state, &arg_idx), spec.length);
+                    if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, spec.conv, "ll")) {
+                        supported = false;
+                        break;
+                    }
+                    n = snprintf(rendered, sizeof(rendered), fmt_buf, (long long)sval);
+                    break;
+                }
+                case 'u':
+                case 'x':
+                case 'X':
+                case 'o': {
+                    uint64_t uval = guest_snprintf_unsigned_arg(guest_snprintf_next_arg(state, &arg_idx), spec.length);
+                    if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, (char)spec.conv, "ll")) {
+                        supported = false;
+                        break;
+                    }
+                    n = snprintf(rendered, sizeof(rendered), fmt_buf, (unsigned long long)uval);
+                    break;
+                }
+                case 'p': {
+                    void *ptr = (void *)(uintptr_t)guest_snprintf_next_arg(state, &arg_idx);
+                    if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, 'p', "")) {
+                        supported = false;
+                        break;
+                    }
+                    n = snprintf(rendered, sizeof(rendered), fmt_buf, ptr);
+                    break;
+                }
+                case 'c': {
+                    int cval = (int)(uint8_t)(guest_snprintf_next_arg(state, &arg_idx) & 0xFFu);
+                    if (spec.length == GUEST_FMT_LEN_L || spec.length == GUEST_FMT_LEN_CAP_L) {
+                        supported = false;
+                        break;
+                    }
+                    if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, 'c', "")) {
+                        supported = false;
+                        break;
+                    }
+                    n = snprintf(rendered, sizeof(rendered), fmt_buf, cval);
+                    break;
+                }
+                case 's': {
+                    uint64_t s_addr = guest_snprintf_next_arg(state, &arg_idx);
+                    const char *src = NULL;
+                    char scratch[512];
+
+                    if (spec.length == GUEST_FMT_LEN_L || spec.length == GUEST_FMT_LEN_CAP_L) {
+                        supported = false;
+                        break;
+                    }
+                    if (s_addr == 0) {
+                        src = "(null)";
+                    } else if (s_addr >= (uint64_t)GUEST_MEM_SIZE) {
+                        src = "(badptr)";
+                    } else {
+                        bool term = false;
+                        uint64_t slen = guest_strnlen_scan(mem, s_addr, (uint64_t)GUEST_MEM_SIZE - s_addr, &term);
+                        size_t copy = (size_t)slen;
+                        if (copy >= sizeof(scratch)) {
+                            copy = sizeof(scratch) - 1u;
+                        }
+                        memcpy(scratch, mem + (size_t)s_addr, copy);
+                        scratch[copy] = '\0';
+                        (void)term;
+                        src = scratch;
+                    }
+                    if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, 's', "")) {
+                        supported = false;
+                        break;
+                    }
+                    n = snprintf(rendered, sizeof(rendered), fmt_buf, src);
+                    break;
+                }
+                default:
+                    supported = false;
+                    break;
+            }
+
+            if (supported) {
+                if (n < 0) {
+                    return 0;
+                }
+                if (n > 0) {
+                    size_t copy = (size_t)n;
+                    if (copy >= sizeof(rendered)) {
+                        copy = sizeof(rendered) - 1u;
+                    }
+                    guest_snprintf_append_str(mem, dst_addr, dst_size, &total, rendered, copy);
+                    if ((size_t)n > copy) {
+                        guest_snprintf_add_total(&total, (uint64_t)((size_t)n - copy));
+                    }
+                }
+                i++;
+                continue;
+            }
+        }
+
+        for (uint64_t k = spec_start; k <= i && k < fmt_len; ++k) {
+            guest_snprintf_append_char(mem, dst_addr, dst_size, &total, mem[(size_t)(fmt_addr + k)]);
+        }
+        i++;
     }
 
     if (dst_size > 0) {
@@ -635,6 +968,367 @@ static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t 
         mem[(size_t)(dst_addr + nul_off)] = 0;
     }
     return total;
+}
+
+static bool guest_parse_strtod(const uint8_t *mem, uint64_t addr, double *out_value, uint64_t *out_end) {
+    bool terminated = false;
+    uint64_t src_len = 0;
+    size_t copy = 0;
+    char tmp[1024];
+    char *end_ptr = NULL;
+    double value = 0.0;
+
+    if (!mem || !out_value || !out_end || addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+
+    *out_value = 0.0;
+    *out_end = addr;
+    src_len = guest_strnlen_scan(mem, addr, (uint64_t)GUEST_MEM_SIZE - addr, &terminated);
+    copy = (size_t)src_len;
+    if (copy >= sizeof(tmp)) {
+        copy = sizeof(tmp) - 1u;
+    }
+    memcpy(tmp, mem + (size_t)addr, copy);
+    tmp[copy] = '\0';
+
+    errno = 0;
+    value = strtod(tmp, &end_ptr);
+    if (!end_ptr || end_ptr == tmp) {
+        *out_value = 0.0;
+        *out_end = addr;
+        return true;
+    }
+
+    *out_value = value;
+    *out_end = addr + (uint64_t)(end_ptr - tmp);
+    return true;
+}
+
+static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value) {
+    switch (len) {
+        case GUEST_FMT_LEN_HH: {
+            int8_t v = (int8_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_H: {
+            int16_t v = (int16_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_L: {
+            long v = (long)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_LL: {
+            long long v = (long long)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_J: {
+            intmax_t v = (intmax_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_Z: {
+            ssize_t v = (ssize_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_T: {
+            ptrdiff_t v = (ptrdiff_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_CAP_L:
+        case GUEST_FMT_LEN_NONE:
+        default: {
+            int v = (int)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+    }
+}
+
+static bool guest_sscanf_store_unsigned(uint8_t *mem, uint64_t addr, GuestFmtLength len, uint64_t value) {
+    switch (len) {
+        case GUEST_FMT_LEN_HH: {
+            uint8_t v = (uint8_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_H: {
+            uint16_t v = (uint16_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_L: {
+            unsigned long v = (unsigned long)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_LL: {
+            unsigned long long v = (unsigned long long)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_J: {
+            uintmax_t v = (uintmax_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_Z: {
+            size_t v = (size_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_T: {
+            ptrdiff_t v = (ptrdiff_t)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+        case GUEST_FMT_LEN_CAP_L:
+        case GUEST_FMT_LEN_NONE:
+        default: {
+            unsigned int v = (unsigned int)value;
+            return guest_write_scalar(mem, addr, &v, sizeof(v));
+        }
+    }
+}
+
+static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state) {
+    bool in_term = false;
+    bool fmt_term = false;
+    uint64_t in_len = 0;
+    uint64_t fmt_len = 0;
+    uint64_t in_pos = 0;
+    uint64_t fmt_pos = 0;
+    uint64_t assigned = 0;
+    unsigned arg_idx = 2;
+
+    if (!mem || !state || input_addr >= (uint64_t)GUEST_MEM_SIZE || fmt_addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return 0;
+    }
+
+    in_len = guest_strnlen_scan(mem, input_addr, (uint64_t)GUEST_MEM_SIZE - input_addr, &in_term);
+    fmt_len = guest_strnlen_scan(mem, fmt_addr, (uint64_t)GUEST_MEM_SIZE - fmt_addr, &fmt_term);
+    if (!in_term || !fmt_term) {
+        return 0;
+    }
+    in_pos = input_addr;
+    fmt_pos = 0;
+
+    while (fmt_pos < fmt_len) {
+        uint8_t fc = mem[(size_t)(fmt_addr + fmt_pos)];
+
+        if (guest_ascii_isspace(fc)) {
+            while (fmt_pos < fmt_len && guest_ascii_isspace(mem[(size_t)(fmt_addr + fmt_pos)])) {
+                fmt_pos++;
+            }
+            while (in_pos < input_addr + in_len && guest_ascii_isspace(mem[(size_t)in_pos])) {
+                in_pos++;
+            }
+            continue;
+        }
+
+        if (fc != '%') {
+            if (in_pos >= input_addr + in_len || mem[(size_t)in_pos] != fc) {
+                break;
+            }
+            in_pos++;
+            fmt_pos++;
+            continue;
+        }
+
+        fmt_pos++;
+        if (fmt_pos >= fmt_len) {
+            break;
+        }
+        if (mem[(size_t)(fmt_addr + fmt_pos)] == '%') {
+            if (in_pos >= input_addr + in_len || mem[(size_t)in_pos] != '%') {
+                break;
+            }
+            in_pos++;
+            fmt_pos++;
+            continue;
+        }
+
+        bool suppress = false;
+        bool width_specified = false;
+        int width = 0;
+        GuestFmtLength len = GUEST_FMT_LEN_NONE;
+        uint8_t conv = 0;
+
+        if (mem[(size_t)(fmt_addr + fmt_pos)] == '*') {
+            suppress = true;
+            fmt_pos++;
+        }
+
+        while (fmt_pos < fmt_len) {
+            uint8_t d = mem[(size_t)(fmt_addr + fmt_pos)];
+            if (d < '0' || d > '9') {
+                break;
+            }
+            width_specified = true;
+            if (width <= INT_MAX / 10) {
+                width *= 10;
+                if (width <= INT_MAX - (int)(d - '0')) {
+                    width += (int)(d - '0');
+                } else {
+                    width = INT_MAX;
+                }
+            } else {
+                width = INT_MAX;
+            }
+            fmt_pos++;
+        }
+
+        if (fmt_pos + 1u < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'h' &&
+            mem[(size_t)(fmt_addr + fmt_pos + 1u)] == 'h') {
+            len = GUEST_FMT_LEN_HH;
+            fmt_pos += 2u;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'h') {
+            len = GUEST_FMT_LEN_H;
+            fmt_pos++;
+        } else if (fmt_pos + 1u < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'l' &&
+                   mem[(size_t)(fmt_addr + fmt_pos + 1u)] == 'l') {
+            len = GUEST_FMT_LEN_LL;
+            fmt_pos += 2u;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'l') {
+            len = GUEST_FMT_LEN_L;
+            fmt_pos++;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'j') {
+            len = GUEST_FMT_LEN_J;
+            fmt_pos++;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'z') {
+            len = GUEST_FMT_LEN_Z;
+            fmt_pos++;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 't') {
+            len = GUEST_FMT_LEN_T;
+            fmt_pos++;
+        } else if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == 'L') {
+            len = GUEST_FMT_LEN_CAP_L;
+            fmt_pos++;
+        }
+
+        if (fmt_pos >= fmt_len) {
+            break;
+        }
+        conv = mem[(size_t)(fmt_addr + fmt_pos)];
+        fmt_pos++;
+
+        if (conv != 'c') {
+            while (in_pos < input_addr + in_len && guest_ascii_isspace(mem[(size_t)in_pos])) {
+                in_pos++;
+            }
+        }
+
+        switch (conv) {
+            case 'd':
+            case 'i': {
+                char token[256];
+                char *endp = NULL;
+                long long parsed = 0;
+                size_t n_tok = 0;
+                uint64_t max_chars = width_specified ? (uint64_t)width : ((input_addr + in_len) - in_pos);
+
+                while (n_tok + 1u < sizeof(token) && (uint64_t)n_tok < max_chars && in_pos + n_tok < input_addr + in_len) {
+                    token[n_tok] = (char)mem[(size_t)(in_pos + n_tok)];
+                    n_tok++;
+                }
+                token[n_tok] = '\0';
+
+                if (n_tok == 0) {
+                    return assigned;
+                }
+                parsed = strtoll(token, &endp, conv == 'd' ? 10 : 0);
+                if (!endp || endp == token) {
+                    return assigned;
+                }
+                in_pos += (uint64_t)(endp - token);
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_sscanf_store_signed(mem, out_ptr, len, (int64_t)parsed)) {
+                        return assigned;
+                    }
+                    assigned++;
+                }
+                break;
+            }
+            case 'u':
+            case 'x':
+            case 'X':
+            case 'o': {
+                char token[256];
+                char *endp = NULL;
+                unsigned long long parsed = 0;
+                size_t n_tok = 0;
+                int base = 10;
+                uint64_t max_chars = width_specified ? (uint64_t)width : ((input_addr + in_len) - in_pos);
+
+                if (conv == 'x' || conv == 'X') {
+                    base = 16;
+                } else if (conv == 'o') {
+                    base = 8;
+                }
+
+                while (n_tok + 1u < sizeof(token) && (uint64_t)n_tok < max_chars && in_pos + n_tok < input_addr + in_len) {
+                    token[n_tok] = (char)mem[(size_t)(in_pos + n_tok)];
+                    n_tok++;
+                }
+                token[n_tok] = '\0';
+
+                if (n_tok == 0) {
+                    return assigned;
+                }
+                parsed = strtoull(token, &endp, base);
+                if (!endp || endp == token) {
+                    return assigned;
+                }
+                in_pos += (uint64_t)(endp - token);
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_sscanf_store_unsigned(mem, out_ptr, len, (uint64_t)parsed)) {
+                        return assigned;
+                    }
+                    assigned++;
+                }
+                break;
+            }
+            case 'c': {
+                uint64_t width_c = width_specified && width > 0 ? (uint64_t)width : 1u;
+                for (uint64_t j = 0; j < width_c; ++j) {
+                    if (in_pos + j >= input_addr + in_len) {
+                        return assigned;
+                    }
+                }
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_mem_range_valid(out_ptr, width_c)) {
+                        return assigned;
+                    }
+                    memcpy(mem + (size_t)out_ptr, mem + (size_t)in_pos, (size_t)width_c);
+                    assigned++;
+                }
+                in_pos += width_c;
+                break;
+            }
+            case 's': {
+                uint64_t max_chars = width_specified && width > 0 ? (uint64_t)width : ((input_addr + in_len) - in_pos);
+                uint64_t count = 0;
+
+                while (count < max_chars && in_pos + count < input_addr + in_len &&
+                       !guest_ascii_isspace(mem[(size_t)(in_pos + count)])) {
+                    count++;
+                }
+                if (count == 0) {
+                    return assigned;
+                }
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_mem_range_valid(out_ptr, count + 1u)) {
+                        return assigned;
+                    }
+                    memmove(mem + (size_t)out_ptr, mem + (size_t)in_pos, (size_t)count);
+                    mem[(size_t)(out_ptr + count)] = 0;
+                    assigned++;
+                }
+                in_pos += count;
+                break;
+            }
+            default:
+                return assigned;
+        }
+    }
+
+    return assigned;
 }
 
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
@@ -1040,6 +1734,29 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 return 0;
             }
             return guest_snprintf_format(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[2], state);
+        case IMPORT_CB_GUEST_STRTOD_X0_X1: {
+            double value = 0.0;
+            uint64_t end_addr = state->x[0];
+            uint64_t endptr_addr = state->x[1];
+            uint64_t bits = 0;
+
+            if (!g_tiny_dbt_current_guest_mem ||
+                !guest_parse_strtod(g_tiny_dbt_current_guest_mem, state->x[0], &value, &end_addr)) {
+                return 0;
+            }
+            if (endptr_addr != 0 && guest_mem_range_valid(endptr_addr, sizeof(uint64_t))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)endptr_addr, &end_addr, sizeof(end_addr));
+            }
+            memcpy(&bits, &value, sizeof(bits));
+            state->v[0][0] = bits;
+            state->v[0][1] = 0;
+            return bits;
+        }
+        case IMPORT_CB_GUEST_SSCANF_X0_X1_X2:
+            if (!g_tiny_dbt_current_guest_mem) {
+                return 0;
+            }
+            return guest_sscanf_scan(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state);
         default:
             return 0;
     }
