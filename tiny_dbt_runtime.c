@@ -92,7 +92,10 @@ enum {
     IMPORT_CB_GUEST_MEMSET_X0_X1_X2 = 0x55,
     IMPORT_CB_GUEST_MEMCMP_X0_X1_X2 = 0x56,
     IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2 = 0x57,
-    IMPORT_CB_GUEST_STRNLEN_X0_X1 = 0x58
+    IMPORT_CB_GUEST_STRNLEN_X0_X1 = 0x58,
+    IMPORT_CB_GUEST_STRLEN_X0 = 0x59,
+    IMPORT_CB_GUEST_STRCMP_X0_X1 = 0x5A,
+    IMPORT_CB_GUEST_STRNCMP_X0_X1_X2 = 0x5B
 };
 
 struct TinyDbt {
@@ -153,6 +156,7 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
 static bool guest_heap_alloc(CPUState *state, uint64_t req, uint64_t *out_ptr, uint64_t *out_size);
 static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req, uint64_t *out_ptr);
 static bool guest_mem_range_valid(uint64_t addr, uint64_t len);
+static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b_addr, uint64_t limit, bool bounded);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -268,6 +272,38 @@ static bool guest_mem_range_valid(uint64_t addr, uint64_t len) {
         return false;
     }
     return addr <= (uint64_t)GUEST_MEM_SIZE - len;
+}
+
+static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b_addr, uint64_t limit, bool bounded) {
+    uint64_t i = 0;
+
+    if (!mem || a_addr >= (uint64_t)GUEST_MEM_SIZE || b_addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return 0;
+    }
+
+    while (true) {
+        uint64_t a_idx = a_addr + i;
+        uint64_t b_idx = b_addr + i;
+        uint8_t a_ch = 0;
+        uint8_t b_ch = 0;
+
+        if (bounded && i >= limit) {
+            return 0;
+        }
+        if (a_idx >= (uint64_t)GUEST_MEM_SIZE || b_idx >= (uint64_t)GUEST_MEM_SIZE) {
+            return 0;
+        }
+
+        a_ch = mem[(size_t)a_idx];
+        b_ch = mem[(size_t)b_idx];
+        if (a_ch != b_ch) {
+            return (int64_t)((int)a_ch - (int)b_ch);
+        }
+        if (a_ch == 0) {
+            return 0;
+        }
+        i++;
+    }
 }
 
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
@@ -454,6 +490,32 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 }
             }
             return scan_len;
+        }
+        case IMPORT_CB_GUEST_STRLEN_X0: {
+            uint64_t addr = state->x[0];
+            uint64_t max_len = 0;
+            const uint8_t *s = NULL;
+
+            if (!g_tiny_dbt_current_guest_mem || addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+            max_len = (uint64_t)GUEST_MEM_SIZE - addr;
+            s = g_tiny_dbt_current_guest_mem + (size_t)addr;
+            for (uint64_t i = 0; i < max_len; ++i) {
+                if (s[i] == 0) {
+                    return i;
+                }
+            }
+            return max_len;
+        }
+        case IMPORT_CB_GUEST_STRCMP_X0_X1: {
+            int64_t diff = guest_strcmp_impl(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], 0, false);
+            return (uint64_t)diff;
+        }
+        case IMPORT_CB_GUEST_STRNCMP_X0_X1_X2: {
+            int64_t diff =
+                guest_strcmp_impl(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[2], true);
+            return (uint64_t)diff;
         }
         default:
             return 0;

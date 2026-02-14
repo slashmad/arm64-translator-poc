@@ -44,7 +44,7 @@
 - Unsupported-opcodes är nu exekveringsdrivna: de ger runtime-exit först när pathen faktiskt körs och kan loggas via `--log-unsupported`/`TINY_DBT_LOG_UNSUPPORTED`.
 - ELF-symbolrunner finns via `--elf-file/--elf-symbol` (plus `--elf-size` för `size=0`-symboler) och patchar out-of-range `B/BL` till lokala returstubbar.
 - ELF-symbolrunnern stöder nu även importspecifika returstubbar via `--elf-import-stub <symbol=value>` baserat på `.rela.plt/.plt`.
-- ELF-symbolrunnern stöder nu även host-callbacks via `--elf-import-callback <symbol=op>` (t.ex. `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`) via interna callback-markörer.
+- ELF-symbolrunnern stöder nu även host-callbacks via `--elf-import-callback <symbol=op>` (t.ex. `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`) via interna callback-markörer.
 - ELF-importmappning läser nu både `REL` och `RELA` från `.rel[a].plt/.rel[a].iplt` samt sektioner som pekar på `.plt/.plt.sec`.
 - ELF-symbolrunnern kan nu skriva per-symbol patchspårning med `--elf-import-trace <path>`.
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
@@ -108,7 +108,7 @@
 
 1. Finslipa FP-semantik: FP-undantag/rounding-mode samt NaN/out-of-range-beteende i konverteringar.
 2. Bygg vidare på SIMD/NEON-bredd (arith, permute, compare) utifrån inventory-topplistor.
-3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: fler libc-lika callback-op:s (`strcmp`, `strncmp`, `strlen`), bättre argument/retur-semantik och fallback-policy när symbolmappning saknas.
+3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: fler libc-lika callback-op:s (`strcpy`, `strncpy`, `strchr`), bättre argument/retur-semantik och fallback-policy när symbolmappning saknas.
 
 ## Bedömning
 
