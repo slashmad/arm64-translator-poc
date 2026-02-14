@@ -61,7 +61,7 @@ Run from ELF symbol:
 - `--elf-file <path> --elf-symbol <name>`: extract and run one symbol from an AArch64 ELF.
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
-- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`).
+- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`, `guest_vsnprintf_x0_x1_x2_x3`, `guest_vsscanf_x0_x1_x2`).
 - `--elf-import-preset <name>`: apply built-in callback sets (`libc-basic`, `android-basic`).
 - `--elf-import-trace <path>`: append per-symbol import patch details for ELF branch rewrites.
 - `--set-reg <name=value>`: initialize registers/state, including `heap_base`, `heap_brk`, `heap_last_ptr`, `heap_last_size`.
@@ -96,6 +96,7 @@ Environment alternatives:
 - `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, and `guest_strtol_x0_x1_x2` add reverse-search and number parsing helpers.
 - `guest_snprintf_x0_x1_x2` now supports flags, width/precision (`*` included), length modifiers (`hh/h/l/ll/j/z/t`), `%f/%e/%g`, and `%n`.
 - Variadic callback arguments now continue from guest stack (starting at `SP`) after register args (`x3..x7` for `snprintf`, `x2..x7` for `sscanf`).
+- `guest_vsnprintf_x0_x1_x2_x3` and `guest_vsscanf_x0_x1_x2` map guest `va_list` memory to callback argument state for variadic import hooks.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
 - `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%f/%e/%g/%c/%s/%[` and `%n` with output pointers in `x2..x7` and then guest stack.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
@@ -169,16 +170,26 @@ make run-import-callback-snprintf-widthprec-example
 make run-import-callback-snprintf-starwidth-example
 make run-import-callback-snprintf-float-n-example
 make run-import-callback-snprintf-stack-varargs-example
+make run-import-callback-vsnprintf-example
+make run-import-callback-vsscanf-example
+make run-import-callback-snprintf-inf-example
+make run-import-callback-snprintf-trunc-edge-example
 make run-import-callback-strtod-example
+make run-import-callback-strtod-nan-example
 make run-import-callback-sscanf-example
 make run-import-callback-sscanf-float-n-scanset-example
 make run-import-callback-sscanf-stack-varargs-example
+make run-import-callback-sscanf-scanset-invert-example
 make run-kingshot-import-profile
+make run-kingshot-import-profile-all
+make run-kingshot-smoke
+make run-nativebridge-skeleton-build
+make run-nativebridge-skeleton-demo
 make run-unsupported-log-example
 make run-elf-symbol-example
 ```
 
-## Kingshot Import Profile
+## Kingshot Import Profiles
 
 Generate a profile for `kingshot` `libmain.so` imports:
 
@@ -186,12 +197,40 @@ Generate a profile for `kingshot` `libmain.so` imports:
 make run-kingshot-import-profile
 ```
 
-This writes:
+Generate profiles for all `arm64-v8a` libs in the APK:
+
+```sh
+make run-kingshot-import-profile-all
+```
+
+Run a smoke execution against one extracted Kingshot ELF symbol with generated import mappings:
+
+```sh
+make run-kingshot-smoke
+```
+
+Default `libmain` profile output:
 
 - `profiles/kingshot_libmain_import_callbacks.txt`
 - `profiles/kingshot_libmain_import_stubs.txt`
 - `profiles/kingshot_libmain_import_args.txt`
 - `reports/kingshot_libmain_unmapped_imports.txt`
+
+All-lib profile output also includes:
+
+- `reports/kingshot_all_import_profiles_summary.txt`
+- `reports/kingshot_all_unmapped_imports.txt`
+
+## NativeBridge Skeleton
+
+Build the placeholder NativeBridge-style stub and loader demo:
+
+```sh
+make run-nativebridge-skeleton-build
+make run-nativebridge-skeleton-demo
+```
+
+Skeleton files live under `nativebridge_skeleton/` and are intentionally minimal.
 
 ## Project Status
 

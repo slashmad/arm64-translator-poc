@@ -4,12 +4,14 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APK_PATH=${1:-/home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk}
 LIB_ENTRY=${2:-lib/arm64-v8a/libmain.so}
+LIB_BASENAME=$(basename "$LIB_ENTRY")
+LIB_NAME=${LIB_BASENAME%.so}
 PROFILE_DIR="$ROOT_DIR/profiles"
 REPORT_DIR="$ROOT_DIR/reports"
-CALLBACK_FILE="$PROFILE_DIR/kingshot_libmain_import_callbacks.txt"
-STUB_FILE="$PROFILE_DIR/kingshot_libmain_import_stubs.txt"
-ARGS_FILE="$PROFILE_DIR/kingshot_libmain_import_args.txt"
-UNMAPPED_FILE="$REPORT_DIR/kingshot_libmain_unmapped_imports.txt"
+CALLBACK_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_callbacks.txt"
+STUB_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_stubs.txt"
+ARGS_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_args.txt"
+UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
 
 map_callback() {
     case "$1" in
@@ -36,7 +38,9 @@ map_callback() {
         strtol) echo guest_strtol_x0_x1_x2 ;;
         strtod) echo guest_strtod_x0_x1 ;;
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
+        vsnprintf) echo guest_vsnprintf_x0_x1_x2_x3 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
+        vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
         dlerror|__android_log_print|__android_log_assert|__android_log_write) echo ret_x0 ;;

@@ -31,7 +31,7 @@ CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: run-swp64-sp-base-example run-ldadd64-sp-base-example run-cas64-success-sp-base-example run-cas64-fail-sp-base-example run-casp64-success-sp-base-example run-casp64-fail-sp-base-example
 .PHONY: run-spill-ldxr-stxr64-sp-base-example run-spill-stxr64-fail-sp-base-example run-spill-ldaxr-stlxr64-sp-base-example run-spill-stlxr64-fail-sp-base-example run-spill-ldar-stlr64-sp-base-example run-spill-ldar-stlr32-sp-base-example run-spill-swp64-sp-base-example run-spill-ldadd64-sp-base-example run-spill-cas64-success-sp-base-example run-spill-cas64-fail-sp-base-example run-spill-casp64-success-sp-base-example run-spill-casp64-fail-sp-base-example
 .PHONY: run-spill-casa64-success-sp-base-example run-spill-casl64-fail-sp-base-example run-spill-casal32-rtx0-sp-base-example run-spill-casb-success-sp-base-example run-spill-caslb-fail-sp-base-example run-spill-casah-success-sp-base-example
-.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-strtod-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-kingshot-import-profile
+.PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-vsnprintf-example run-import-callback-vsscanf-example run-import-callback-snprintf-inf-example run-import-callback-snprintf-trunc-edge-example run-import-callback-strtod-example run-import-callback-strtod-nan-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-import-callback-sscanf-scanset-invert-example run-kingshot-import-profile run-kingshot-import-profile-all run-kingshot-smoke run-nativebridge-skeleton-build run-nativebridge-skeleton-demo
 
 all: tiny_dbt
 
@@ -811,8 +811,20 @@ run-import-callback-snprintf-float-n-example: tiny_dbt
 run-import-callback-snprintf-stack-varargs-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x40 --set-reg x1=64 --set-reg x2=0x20 --set-reg x3=1 --set-reg x4=2 --set-reg x5=3 --set-reg x6=4 --set-reg x7=5 --set-reg sp=0x300 --mem-write 0x300:0600000000000000 --mem-write 0x20:256420256420256420256420256420256400 --mem-read 0x40:24 D454ACA0 D65F03C0
 
+run-import-callback-vsnprintf-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=64 --set-reg x2=0x20 --set-reg x3=0x300 --mem-write 0x300:2A000000000000000300000000000000 --mem-write 0x20:25752D257500 --mem-read 0x40:16 D454AD00 D65F03C0
+
+run-import-callback-snprintf-inf-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40 --set-reg x1=64 --set-reg x2=0x20 --set-reg x3=0x7FF0000000000000 --set-reg x4=0xFFF0000000000000 --set-reg x5=0x7FF8000000000000 --mem-write 0x20:256620257C25667C256700 --mem-read 0x40:24 D454ACA0 D65F03C0
+
+run-import-callback-snprintf-trunc-edge-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x60 --set-reg x1=1 --set-reg x2=0x20 --set-reg x3=12345 --mem-write 0x20:256400 --mem-read 0x60:1 D454ACA0 D65F03C0
+
 run-import-callback-strtod-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x90 --mem-write 0x20:202D31322E3561626300 --mem-read 0x90:8 D454ACC0 D65F03C0
+
+run-import-callback-strtod-nan-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x90 --mem-write 0x20:6E616E283132332900 --mem-read 0x90:8 D454ACC0 D65F03C0
 
 run-import-callback-sscanf-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x80 --set-reg x2=0x200 --set-reg x3=0x208 --set-reg x4=0x220 --mem-write 0x20:3132332037622068656C6C6F00 --mem-write 0x80:256420257820257300 --mem-read 0x200:4 --mem-read 0x208:4 --mem-read 0x220:6 D454ACE0 D65F03C0
@@ -823,8 +835,26 @@ run-import-callback-sscanf-float-n-scanset-example: tiny_dbt
 run-import-callback-sscanf-stack-varargs-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x80 --set-reg x2=0x200 --set-reg x3=0x208 --set-reg x4=0x210 --set-reg x5=0x218 --set-reg x6=0x220 --set-reg x7=0x228 --set-reg sp=0x300 --mem-write 0x300:3002000000000000 --mem-write 0x20:3120322033203420352036203700 --mem-write 0x80:256420256420256420256420256420256420256400 --mem-read 0x200:4 --mem-read 0x208:4 --mem-read 0x210:4 --mem-read 0x218:4 --mem-read 0x220:4 --mem-read 0x228:4 --mem-read 0x230:4 D454ACE0 D65F03C0
 
+run-import-callback-vsscanf-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x80 --set-reg x2=0x300 --mem-write 0x20:343220666600 --mem-write 0x80:256420257800 --mem-write 0x300:00020000000000000802000000000000 --mem-read 0x200:4 --mem-read 0x208:4 D454AD20 D65F03C0
+
+run-import-callback-sscanf-scanset-invert-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x80 --set-reg x2=0x240 --set-reg x3=0x260 --mem-write 0x20:414243313233212A00 --mem-write 0x80:255B5E302D395D256E00 --mem-read 0x240:10 --mem-read 0x260:4 D454ACE0 D65F03C0
+
 run-kingshot-import-profile:
 	./scripts/generate_kingshot_import_profile.sh
+
+run-kingshot-import-profile-all:
+	./scripts/generate_kingshot_all_import_profiles.sh
+
+run-kingshot-smoke: tiny_dbt
+	./scripts/run_kingshot_smoke.sh
+
+run-nativebridge-skeleton-build:
+	$(MAKE) -C nativebridge_skeleton
+
+run-nativebridge-skeleton-demo:
+	$(MAKE) -C nativebridge_skeleton run-demo
 
 run-orrreg64-zr-alias-example: tiny_dbt
 	./tiny_dbt D2800541 AA0103E0 D65F03C0

@@ -8,6 +8,7 @@
 
 # Generated reports
 /reports/
+/profiles/kingshot_*_import_*.txt
 
 # Local temp outputs
 *.log

@@ -50,6 +50,11 @@
 - ELF-importmappning läser nu både `REL` och `RELA` från `.rel[a].plt/.rel[a].iplt` samt sektioner som pekar på `.plt/.plt.sec`.
 - ELF-symbolrunnern kan nu skriva per-symbol patchspårning med `--elf-import-trace <path>`.
 - Kingshot-importprofil kan nu autogenereras via `make run-kingshot-import-profile` (callbacks/stubs + unmapped-lista).
+- Kingshot-importprofilering kan nu köras för alla `arm64-v8a`-bibliotek via `make run-kingshot-import-profile-all` (sammanfattning + global unmapped-lista).
+- Kingshot smoke-runner finns nu via `make run-kingshot-smoke` (autoval av symbol + import trace + unsupported-logg).
+- Import-callbacks täcker nu även `guest_vsnprintf_x0_x1_x2_x3` och `guest_vsscanf_x0_x1_x2`.
+- Edge-case regressioner finns nu för `snprintf` (`inf/nan`, trunc-edge) och `sscanf`/`strtod` (inverterad scanset, `nan(...)`).
+- Ett första NativeBridge/loader-skelett finns nu i `nativebridge_skeleton/` (`make run-nativebridge-skeleton-build`, `make run-nativebridge-skeleton-demo`).
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).
@@ -111,7 +116,7 @@
 
 1. Finslipa FP-semantik: FP-undantag/rounding-mode samt NaN/out-of-range-beteende i konverteringar.
 2. Bygg vidare på SIMD/NEON-bredd (arith, permute, compare) utifrån inventory-topplistor.
-3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: stabilisera `strtod`/`sscanf`-kantfall (NaN/Inf, locale, overflow), lägg till fler libc-funktioner (`strtof`, `strtoul`, `vsnprintf`) och app-specifika preset-profiler.
+3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: stabilisera `strtod`/`sscanf`-kantfall (locale, overflow), lägg till fler libc-funktioner (`strtof`, `strtoul`, `vfprintf`-familj) och app-specifika preset-profiler.
 
 ## Bedömning
 

@@ -108,7 +108,9 @@ enum {
     IMPORT_CB_GUEST_STRTOL_X0_X1_X2 = 0x64,
     IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2 = 0x65,
     IMPORT_CB_GUEST_STRTOD_X0_X1 = 0x66,
-    IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67
+    IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67,
+    IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3 = 0x68,
+    IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69
 };
 
 struct TinyDbt {
@@ -202,6 +204,8 @@ static bool guest_ascii_isspace(uint8_t ch);
 static int guest_digit_value(uint8_t ch);
 static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, size_t len);
 static bool guest_vararg_read_u64(const CPUState *state, unsigned *arg_idx, uint64_t *out_value);
+static bool guest_prepare_vsnprintf_state(const CPUState *state, uint64_t va_list_addr, CPUState *out_state);
+static bool guest_prepare_vsscanf_state(const CPUState *state, uint64_t va_list_addr, CPUState *out_state);
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx);
 static uint64_t guest_sscanf_next_arg(const CPUState *state, unsigned *arg_idx);
 static void guest_snprintf_add_total(uint64_t *io_total, uint64_t add);
@@ -538,6 +542,44 @@ static bool guest_vararg_read_u64(const CPUState *state, unsigned *arg_idx, uint
     (*arg_idx)++;
     *out_value = value;
     return ok;
+}
+
+static bool guest_prepare_vsnprintf_state(const CPUState *state, uint64_t va_list_addr, CPUState *out_state) {
+    uint64_t cursor = va_list_addr;
+    if (!state || !out_state || !g_tiny_dbt_current_guest_mem) {
+        return false;
+    }
+    *out_state = *state;
+    for (unsigned reg = 3u; reg <= 7u; ++reg) {
+        uint64_t value = 0;
+        if (!guest_mem_range_valid(cursor, sizeof(uint64_t))) {
+            return false;
+        }
+        memcpy(&value, g_tiny_dbt_current_guest_mem + (size_t)cursor, sizeof(value));
+        out_state->x[reg] = value;
+        cursor += sizeof(uint64_t);
+    }
+    out_state->sp = cursor;
+    return true;
+}
+
+static bool guest_prepare_vsscanf_state(const CPUState *state, uint64_t va_list_addr, CPUState *out_state) {
+    uint64_t cursor = va_list_addr;
+    if (!state || !out_state || !g_tiny_dbt_current_guest_mem) {
+        return false;
+    }
+    *out_state = *state;
+    for (unsigned reg = 2u; reg <= 7u; ++reg) {
+        uint64_t value = 0;
+        if (!guest_mem_range_valid(cursor, sizeof(uint64_t))) {
+            return false;
+        }
+        memcpy(&value, g_tiny_dbt_current_guest_mem + (size_t)cursor, sizeof(value));
+        out_state->x[reg] = value;
+        cursor += sizeof(uint64_t);
+    }
+    out_state->sp = cursor;
+    return true;
 }
 
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx) {
@@ -1957,6 +1999,21 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 return 0;
             }
             return guest_sscanf_scan(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state);
+        case IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3: {
+            CPUState tmp_state;
+            if (!g_tiny_dbt_current_guest_mem || !guest_prepare_vsnprintf_state(state, state->x[3], &tmp_state)) {
+                return 0;
+            }
+            return guest_snprintf_format(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[2],
+                                         &tmp_state);
+        }
+        case IMPORT_CB_GUEST_VSSCANF_X0_X1_X2: {
+            CPUState tmp_state;
+            if (!g_tiny_dbt_current_guest_mem || !guest_prepare_vsscanf_state(state, state->x[2], &tmp_state)) {
+                return 0;
+            }
+            return guest_sscanf_scan(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], &tmp_state);
+        }
         default:
             return 0;
     }
