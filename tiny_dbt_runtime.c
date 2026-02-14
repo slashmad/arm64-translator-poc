@@ -201,6 +201,7 @@ static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, 
 static bool guest_ascii_isspace(uint8_t ch);
 static int guest_digit_value(uint8_t ch);
 static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, size_t len);
+static bool guest_vararg_read_u64(const CPUState *state, unsigned *arg_idx, uint64_t *out_value);
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx);
 static uint64_t guest_sscanf_next_arg(const CPUState *state, unsigned *arg_idx);
 static void guest_snprintf_add_total(uint64_t *io_total, uint64_t add);
@@ -216,6 +217,7 @@ static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t 
 static bool guest_parse_strtod(const uint8_t *mem, uint64_t addr, double *out_value, uint64_t *out_end);
 static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value);
 static bool guest_sscanf_store_unsigned(uint8_t *mem, uint64_t addr, GuestFmtLength len, uint64_t value);
+static bool guest_sscanf_store_float(uint8_t *mem, uint64_t addr, GuestFmtLength len, double value);
 static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state);
 
 /*
@@ -502,28 +504,56 @@ static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, siz
     return true;
 }
 
+static bool guest_vararg_read_u64(const CPUState *state, unsigned *arg_idx, uint64_t *out_value) {
+    uint64_t value = 0;
+    bool ok = true;
+
+    if (!state || !arg_idx || !out_value) {
+        return false;
+    }
+
+    if (*arg_idx <= 7u) {
+        value = state->x[*arg_idx];
+    } else {
+        uint64_t slot = (uint64_t)(*arg_idx - 8u);
+        uint64_t byte_off = 0;
+        uint64_t addr = 0;
+        if (slot > UINT64_MAX / 8u) {
+            ok = false;
+        } else {
+            byte_off = slot * 8u;
+            if (state->sp > UINT64_MAX - byte_off) {
+                ok = false;
+            } else {
+                addr = state->sp + byte_off;
+                if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(addr, sizeof(uint64_t))) {
+                    ok = false;
+                } else {
+                    memcpy(&value, g_tiny_dbt_current_guest_mem + (size_t)addr, sizeof(value));
+                }
+            }
+        }
+    }
+
+    (*arg_idx)++;
+    *out_value = value;
+    return ok;
+}
+
 static uint64_t guest_snprintf_next_arg(const CPUState *state, unsigned *arg_idx) {
-    if (!state || !arg_idx) {
+    uint64_t value = 0;
+    if (!guest_vararg_read_u64(state, arg_idx, &value)) {
         return 0;
     }
-    if (*arg_idx <= 7u) {
-        uint64_t value = state->x[*arg_idx];
-        (*arg_idx)++;
-        return value;
-    }
-    return 0;
+    return value;
 }
 
 static uint64_t guest_sscanf_next_arg(const CPUState *state, unsigned *arg_idx) {
-    if (!state || !arg_idx) {
+    uint64_t value = 0;
+    if (!guest_vararg_read_u64(state, arg_idx, &value)) {
         return 0;
     }
-    if (*arg_idx <= 7u) {
-        uint64_t value = state->x[*arg_idx];
-        (*arg_idx)++;
-        return value;
-    }
-    return 0;
+    return value;
 }
 
 static void guest_snprintf_add_total(uint64_t *io_total, uint64_t add) {
@@ -879,6 +909,31 @@ static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t 
                     n = snprintf(rendered, sizeof(rendered), fmt_buf, (unsigned long long)uval);
                     break;
                 }
+                case 'f':
+                case 'F':
+                case 'e':
+                case 'E':
+                case 'g':
+                case 'G': {
+                    uint64_t raw = guest_snprintf_next_arg(state, &arg_idx);
+                    double dv = 0.0;
+                    memcpy(&dv, &raw, sizeof(dv));
+                    if (spec.length == GUEST_FMT_LEN_CAP_L) {
+                        long double lv = (long double)dv;
+                        if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, (char)spec.conv, "L")) {
+                            supported = false;
+                            break;
+                        }
+                        n = snprintf(rendered, sizeof(rendered), fmt_buf, lv);
+                    } else {
+                        if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, (char)spec.conv, "")) {
+                            supported = false;
+                            break;
+                        }
+                        n = snprintf(rendered, sizeof(rendered), fmt_buf, dv);
+                    }
+                    break;
+                }
                 case 'p': {
                     void *ptr = (void *)(uintptr_t)guest_snprintf_next_arg(state, &arg_idx);
                     if (!guest_snprintf_build_format(fmt_buf, sizeof(fmt_buf), &spec, 'p', "")) {
@@ -931,6 +986,16 @@ static uint64_t guest_snprintf_format(uint8_t *mem, uint64_t dst_addr, uint64_t 
                         break;
                     }
                     n = snprintf(rendered, sizeof(rendered), fmt_buf, src);
+                    break;
+                }
+                case 'n': {
+                    uint64_t out_ptr = guest_snprintf_next_arg(state, &arg_idx);
+                    int64_t count = total > (uint64_t)INT64_MAX ? INT64_MAX : (int64_t)total;
+                    if (out_ptr == 0 || !guest_sscanf_store_signed(mem, out_ptr, spec.length, count)) {
+                        supported = false;
+                        break;
+                    }
+                    n = 0;
                     break;
                 }
                 default:
@@ -1083,6 +1148,21 @@ static bool guest_sscanf_store_unsigned(uint8_t *mem, uint64_t addr, GuestFmtLen
     }
 }
 
+static bool guest_sscanf_store_float(uint8_t *mem, uint64_t addr, GuestFmtLength len, double value) {
+    if (len == GUEST_FMT_LEN_CAP_L) {
+        long double v = (long double)value;
+        return guest_write_scalar(mem, addr, &v, sizeof(v));
+    }
+    if (len == GUEST_FMT_LEN_L) {
+        double v = value;
+        return guest_write_scalar(mem, addr, &v, sizeof(v));
+    }
+    {
+        float v = (float)value;
+        return guest_write_scalar(mem, addr, &v, sizeof(v));
+    }
+}
+
 static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state) {
     bool in_term = false;
     bool fmt_term = false;
@@ -1204,7 +1284,7 @@ static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fm
         conv = mem[(size_t)(fmt_addr + fmt_pos)];
         fmt_pos++;
 
-        if (conv != 'c') {
+        if (conv != 'c' && conv != '[' && conv != 'n') {
             while (in_pos < input_addr + in_len && guest_ascii_isspace(mem[(size_t)in_pos])) {
                 in_pos++;
             }
@@ -1282,6 +1362,43 @@ static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fm
                 }
                 break;
             }
+            case 'f':
+            case 'F':
+            case 'e':
+            case 'E':
+            case 'g':
+            case 'G':
+            case 'a':
+            case 'A': {
+                char token[256];
+                char *endp = NULL;
+                double parsed = 0.0;
+                size_t n_tok = 0;
+                uint64_t max_chars = width_specified ? (uint64_t)width : ((input_addr + in_len) - in_pos);
+
+                while (n_tok + 1u < sizeof(token) && (uint64_t)n_tok < max_chars && in_pos + n_tok < input_addr + in_len) {
+                    token[n_tok] = (char)mem[(size_t)(in_pos + n_tok)];
+                    n_tok++;
+                }
+                token[n_tok] = '\0';
+
+                if (n_tok == 0) {
+                    return assigned;
+                }
+                parsed = strtod(token, &endp);
+                if (!endp || endp == token) {
+                    return assigned;
+                }
+                in_pos += (uint64_t)(endp - token);
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_sscanf_store_float(mem, out_ptr, len, parsed)) {
+                        return assigned;
+                    }
+                    assigned++;
+                }
+                break;
+            }
             case 'c': {
                 uint64_t width_c = width_specified && width > 0 ? (uint64_t)width : 1u;
                 for (uint64_t j = 0; j < width_c; ++j) {
@@ -1321,6 +1438,89 @@ static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fm
                     assigned++;
                 }
                 in_pos += count;
+                break;
+            }
+            case '[': {
+                bool invert = false;
+                bool set[256];
+                uint8_t prev = 0;
+                bool have_prev = false;
+                uint64_t max_chars = 0;
+                uint64_t count = 0;
+
+                memset(set, 0, sizeof(set));
+                if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == '^') {
+                    invert = true;
+                    fmt_pos++;
+                }
+                if (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] == ']') {
+                    set[(uint8_t)']'] = true;
+                    prev = (uint8_t)']';
+                    have_prev = true;
+                    fmt_pos++;
+                }
+                while (fmt_pos < fmt_len && mem[(size_t)(fmt_addr + fmt_pos)] != ']') {
+                    uint8_t c1 = mem[(size_t)(fmt_addr + fmt_pos)];
+                    if (c1 == '-' && have_prev && fmt_pos + 1u < fmt_len &&
+                        mem[(size_t)(fmt_addr + fmt_pos + 1u)] != ']') {
+                        uint8_t c2 = mem[(size_t)(fmt_addr + fmt_pos + 1u)];
+                        uint8_t lo = prev < c2 ? prev : c2;
+                        uint8_t hi = prev < c2 ? c2 : prev;
+                        for (unsigned v = lo; v <= hi; ++v) {
+                            set[v] = true;
+                        }
+                        prev = c2;
+                        have_prev = true;
+                        fmt_pos += 2u;
+                        continue;
+                    }
+                    set[c1] = true;
+                    prev = c1;
+                    have_prev = true;
+                    fmt_pos++;
+                }
+                if (fmt_pos >= fmt_len || mem[(size_t)(fmt_addr + fmt_pos)] != ']') {
+                    return assigned;
+                }
+                fmt_pos++;
+
+                max_chars = width_specified && width > 0 ? (uint64_t)width : ((input_addr + in_len) - in_pos);
+                while (count < max_chars && in_pos + count < input_addr + in_len) {
+                    uint8_t ch = mem[(size_t)(in_pos + count)];
+                    bool match = set[ch];
+                    if (invert) {
+                        match = !match;
+                    }
+                    if (!match) {
+                        break;
+                    }
+                    count++;
+                }
+                if (count == 0) {
+                    return assigned;
+                }
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    if (out_ptr == 0 || !guest_mem_range_valid(out_ptr, count + 1u)) {
+                        return assigned;
+                    }
+                    memmove(mem + (size_t)out_ptr, mem + (size_t)in_pos, (size_t)count);
+                    mem[(size_t)(out_ptr + count)] = 0;
+                    assigned++;
+                }
+                in_pos += count;
+                break;
+            }
+            case 'n': {
+                if (!suppress) {
+                    uint64_t out_ptr = guest_sscanf_next_arg(state, &arg_idx);
+                    int64_t consumed = (in_pos - input_addr) > (uint64_t)INT64_MAX
+                                           ? INT64_MAX
+                                           : (int64_t)(in_pos - input_addr);
+                    if (out_ptr == 0 || !guest_sscanf_store_signed(mem, out_ptr, len, consumed)) {
+                        return assigned;
+                    }
+                }
                 break;
             }
             default:

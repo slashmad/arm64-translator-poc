@@ -94,9 +94,10 @@ Environment alternatives:
 - `guest_strlen_x0`, `guest_strcmp_x0_x1`, and `guest_strncmp_x0_x1_x2` provide basic C-string helpers on guest memory.
 - `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, and `guest_memchr_x0_x1_x2` add basic copy/search helpers on guest memory.
 - `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, and `guest_strtol_x0_x1_x2` add reverse-search and number parsing helpers.
-- `guest_snprintf_x0_x1_x2` now supports flags, width/precision (`*` included), and length modifiers (`hh/h/l/ll/j/z/t`) for common integer/string conversions.
+- `guest_snprintf_x0_x1_x2` now supports flags, width/precision (`*` included), length modifiers (`hh/h/l/ll/j/z/t`), `%f/%e/%g`, and `%n`.
+- Variadic callback arguments now continue from guest stack (starting at `SP`) after register args (`x3..x7` for `snprintf`, `x2..x7` for `sscanf`).
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
-- `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%c/%s` with output pointers in `x2..x7`.
+- `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%f/%e/%g/%c/%s/%[` and `%n` with output pointers in `x2..x7` and then guest stack.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
 - Import mapping scans both `REL`/`RELA` PLT-style sections (`.rel[a].plt`, `.rel[a].iplt`) and `.plt/.plt.sec`-linked relocation sections.
 - With `--elf-import-trace`, each import stub/callback patch is logged with symbol and branch count.
@@ -166,11 +167,31 @@ make run-import-callback-snprintf-mixed-example
 make run-import-callback-snprintf-trunc-example
 make run-import-callback-snprintf-widthprec-example
 make run-import-callback-snprintf-starwidth-example
+make run-import-callback-snprintf-float-n-example
+make run-import-callback-snprintf-stack-varargs-example
 make run-import-callback-strtod-example
 make run-import-callback-sscanf-example
+make run-import-callback-sscanf-float-n-scanset-example
+make run-import-callback-sscanf-stack-varargs-example
+make run-kingshot-import-profile
 make run-unsupported-log-example
 make run-elf-symbol-example
 ```
+
+## Kingshot Import Profile
+
+Generate a profile for `kingshot` `libmain.so` imports:
+
+```sh
+make run-kingshot-import-profile
+```
+
+This writes:
+
+- `profiles/kingshot_libmain_import_callbacks.txt`
+- `profiles/kingshot_libmain_import_stubs.txt`
+- `profiles/kingshot_libmain_import_args.txt`
+- `reports/kingshot_libmain_unmapped_imports.txt`
 
 ## Project Status
 

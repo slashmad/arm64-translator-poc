@@ -1,0 +1,4 @@
+__cxa_atexit=0
+__cxa_finalize=0
+__stack_chk_fail=0
+dlclose=0

@@ -45,9 +45,11 @@
 - ELF-symbolrunner finns via `--elf-file/--elf-symbol` (plus `--elf-size` för `size=0`-symboler) och patchar out-of-range `B/BL` till lokala returstubbar.
 - ELF-symbolrunnern stöder nu även importspecifika returstubbar via `--elf-import-stub <symbol=value>` baserat på `.rela.plt/.plt`.
 - ELF-symbolrunnern stöder nu även host-callbacks via `--elf-import-callback <symbol=op>` (t.ex. `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`) via interna callback-markörer.
+- `guest_snprintf_x0_x1_x2`/`guest_sscanf_x0_x1_x2` läser nu variadiska argument både från register och guest-stack (`SP`) och täcker nu `%f/%e/%g`, `%n` och scansets (`%[...]`) i PoC-nivå.
 - ELF-symbolrunnern stöder nu även callback-presets via `--elf-import-preset` (`libc-basic`, `android-basic`) för snabbare importmappning.
 - ELF-importmappning läser nu både `REL` och `RELA` från `.rel[a].plt/.rel[a].iplt` samt sektioner som pekar på `.plt/.plt.sec`.
 - ELF-symbolrunnern kan nu skriva per-symbol patchspårning med `--elf-import-trace <path>`.
+- Kingshot-importprofil kan nu autogenereras via `make run-kingshot-import-profile` (callbacks/stubs + unmapped-lista).
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).
@@ -109,7 +111,7 @@
 
 1. Finslipa FP-semantik: FP-undantag/rounding-mode samt NaN/out-of-range-beteende i konverteringar.
 2. Bygg vidare på SIMD/NEON-bredd (arith, permute, compare) utifrån inventory-topplistor.
-3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: `v0`/FP-retursemanik för fler libc-funktioner, bredare `sscanf`/`snprintf`-formatstöd (`f/e/g`, `%n`, scansets) samt preset-profiler per app/lib.
+3. Bygg nästa ELF-lager ovanpå callback/trace-flödet: stabilisera `strtod`/`sscanf`-kantfall (NaN/Inf, locale, overflow), lägg till fler libc-funktioner (`strtof`, `strtoul`, `vsnprintf`) och app-specifika preset-profiler.
 
 ## Bedömning
 

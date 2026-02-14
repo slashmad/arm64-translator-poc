@@ -1,0 +1,14 @@
+# Auto-generated import arguments for tiny_dbt
+# Source APK: /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk
+# Source entry: lib/arm64-v8a/libmain.so
+--elf-import-callback dlerror=ret_x0 \
+--elf-import-callback dlopen=nonnull_x0 \
+--elf-import-callback dlsym=ret_sp \
+--elf-import-callback free=guest_free_x0 \
+--elf-import-callback malloc=guest_alloc_x0 \
+--elf-import-callback memcpy=guest_memcpy_x0_x1_x2 \
+--elf-import-callback snprintf=guest_snprintf_x0_x1_x2 \
+--elf-import-stub __cxa_atexit=0 \
+--elf-import-stub __cxa_finalize=0 \
+--elf-import-stub __stack_chk_fail=0 \
+--elf-import-stub dlclose=0 \

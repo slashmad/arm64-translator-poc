@@ -1,0 +1,7 @@
+dlerror=ret_x0
+dlopen=nonnull_x0
+dlsym=ret_sp
+free=guest_free_x0
+malloc=guest_alloc_x0
+memcpy=guest_memcpy_x0_x1_x2
+snprintf=guest_snprintf_x0_x1_x2
