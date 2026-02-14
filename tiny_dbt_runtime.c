@@ -95,7 +95,10 @@ enum {
     IMPORT_CB_GUEST_STRNLEN_X0_X1 = 0x58,
     IMPORT_CB_GUEST_STRLEN_X0 = 0x59,
     IMPORT_CB_GUEST_STRCMP_X0_X1 = 0x5A,
-    IMPORT_CB_GUEST_STRNCMP_X0_X1_X2 = 0x5B
+    IMPORT_CB_GUEST_STRNCMP_X0_X1_X2 = 0x5B,
+    IMPORT_CB_GUEST_STRCPY_X0_X1 = 0x5C,
+    IMPORT_CB_GUEST_STRNCPY_X0_X1_X2 = 0x5D,
+    IMPORT_CB_GUEST_STRCHR_X0_X1 = 0x5E
 };
 
 struct TinyDbt {
@@ -157,6 +160,7 @@ static bool guest_heap_alloc(CPUState *state, uint64_t req, uint64_t *out_ptr, u
 static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req, uint64_t *out_ptr);
 static bool guest_mem_range_valid(uint64_t addr, uint64_t len);
 static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b_addr, uint64_t limit, bool bounded);
+static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t max_len, bool *out_terminated);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -304,6 +308,29 @@ static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b
         }
         i++;
     }
+}
+
+static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t max_len, bool *out_terminated) {
+    uint64_t i = 0;
+    if (out_terminated) {
+        *out_terminated = false;
+    }
+    if (!mem || addr >= (uint64_t)GUEST_MEM_SIZE) {
+        return 0;
+    }
+    for (i = 0; i < max_len; ++i) {
+        uint64_t idx = addr + i;
+        if (idx >= (uint64_t)GUEST_MEM_SIZE) {
+            return i;
+        }
+        if (mem[(size_t)idx] == 0) {
+            if (out_terminated) {
+                *out_terminated = true;
+            }
+            return i;
+        }
+    }
+    return max_len;
 }
 
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id) {
@@ -516,6 +543,81 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             int64_t diff =
                 guest_strcmp_impl(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[2], true);
             return (uint64_t)diff;
+        }
+        case IMPORT_CB_GUEST_STRCPY_X0_X1: {
+            uint64_t dst = state->x[0];
+            uint64_t src = state->x[1];
+            bool terminated = false;
+            uint64_t len = 0;
+            uint64_t nbytes = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || dst >= (uint64_t)GUEST_MEM_SIZE || src >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+
+            len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, src, (uint64_t)GUEST_MEM_SIZE - src, &terminated);
+            if (!terminated) {
+                return 0;
+            }
+            nbytes = len + 1; /* include trailing NUL */
+            if (!guest_mem_range_valid(dst, nbytes) || !guest_mem_range_valid(src, nbytes)) {
+                return 0;
+            }
+
+            memmove(g_tiny_dbt_current_guest_mem + (size_t)dst, g_tiny_dbt_current_guest_mem + (size_t)src, (size_t)nbytes);
+            return dst;
+        }
+        case IMPORT_CB_GUEST_STRNCPY_X0_X1_X2: {
+            uint64_t dst = state->x[0];
+            uint64_t src = state->x[1];
+            uint64_t n = state->x[2];
+            uint64_t i = 0;
+            bool saw_nul = false;
+
+            if (!g_tiny_dbt_current_guest_mem || dst >= (uint64_t)GUEST_MEM_SIZE || src >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+            if (n == 0) {
+                return dst;
+            }
+            if (!guest_mem_range_valid(dst, n)) {
+                return 0;
+            }
+
+            for (i = 0; i < n; ++i) {
+                uint64_t src_idx = src + i;
+                uint8_t ch = 0;
+                if (!saw_nul) {
+                    if (src_idx >= (uint64_t)GUEST_MEM_SIZE) {
+                        return 0;
+                    }
+                    ch = g_tiny_dbt_current_guest_mem[(size_t)src_idx];
+                    if (ch == 0) {
+                        saw_nul = true;
+                    }
+                }
+                g_tiny_dbt_current_guest_mem[(size_t)(dst + i)] = saw_nul ? 0 : ch;
+            }
+            return dst;
+        }
+        case IMPORT_CB_GUEST_STRCHR_X0_X1: {
+            uint64_t addr = state->x[0];
+            uint8_t needle = (uint8_t)(state->x[1] & 0xFFu);
+            uint64_t i = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+            for (i = 0; addr + i < (uint64_t)GUEST_MEM_SIZE; ++i) {
+                uint8_t ch = g_tiny_dbt_current_guest_mem[(size_t)(addr + i)];
+                if (ch == needle) {
+                    return addr + i;
+                }
+                if (ch == 0) {
+                    break;
+                }
+            }
+            return 0;
         }
         default:
             return 0;

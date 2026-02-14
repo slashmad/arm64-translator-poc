@@ -61,7 +61,7 @@ Run from ELF symbol:
 - `--elf-file <path> --elf-symbol <name>`: extract and run one symbol from an AArch64 ELF.
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
-- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`).
+- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`).
 - `--elf-import-trace <path>`: append per-symbol import patch details for ELF branch rewrites.
 - `--set-reg <name=value>`: initialize registers/state, including `heap_base`, `heap_brk`, `heap_last_ptr`, `heap_last_size`.
 - `--trace-state`: print compact state before/after run.
@@ -90,6 +90,7 @@ Environment alternatives:
 - `guest_memcmp_x0_x1_x2` compares guest memory regions and returns a signed-style diff in `x0`.
 - `guest_strnlen_x0_x1` scans a guest string with a max length limit and returns length in `x0`.
 - `guest_strlen_x0`, `guest_strcmp_x0_x1`, and `guest_strncmp_x0_x1_x2` provide basic C-string helpers on guest memory.
+- `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, and `guest_strchr_x0_x1` add basic copy/search string helpers on guest memory.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
 - Import mapping scans both `REL`/`RELA` PLT-style sections (`.rel[a].plt`, `.rel[a].iplt`) and `.plt/.plt.sec`-linked relocation sections.
 - With `--elf-import-trace`, each import stub/callback patch is logged with symbol and branch count.
@@ -134,6 +135,11 @@ make run-import-callback-strcmp-eq-example
 make run-import-callback-strcmp-ne-example
 make run-import-callback-strncmp-eq-prefix-example
 make run-import-callback-strncmp-ne-example
+make run-import-callback-strcpy-example
+make run-import-callback-strncpy-pad-example
+make run-import-callback-strchr-hit-example
+make run-import-callback-strchr-miss-example
+make run-import-callback-strchr-nul-example
 make run-unsupported-log-example
 make run-elf-symbol-example
 ```
