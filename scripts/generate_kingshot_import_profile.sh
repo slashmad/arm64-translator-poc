@@ -53,9 +53,10 @@ map_callback() {
         strrchr) echo guest_strrchr_x0_x1 ;;
         strstr) echo guest_strstr_x0_x1 ;;
         atoi) echo guest_atoi_x0 ;;
-        strtol|strtoll) echo guest_strtol_x0_x1_x2 ;;
-        strtoul|strtoull) echo guest_strtoul_x0_x1_x2 ;;
-        strtod) echo guest_strtod_x0_x1 ;;
+        atoll) echo guest_atoi_x0 ;;
+        strtol|strtoll|strtoll_l) echo guest_strtol_x0_x1_x2 ;;
+        strtoul|strtoull|strtoull_l) echo guest_strtoul_x0_x1_x2 ;;
+        strtod|strtold_l) echo guest_strtod_x0_x1 ;;
         strtof) echo guest_strtof_x0_x1 ;;
         pow) echo guest_pow_x0_x1 ;;
         sqrt) echo guest_sqrt_x0 ;;
@@ -65,8 +66,8 @@ map_callback() {
         isspace) echo guest_isspace_x0 ;;
         isxdigit) echo guest_isxdigit_x0 ;;
         isupper) echo guest_isupper_x0 ;;
-        toupper) echo guest_toupper_x0 ;;
-        tolower) echo guest_tolower_x0 ;;
+        toupper|towupper) echo guest_toupper_x0 ;;
+        tolower|towlower) echo guest_tolower_x0 ;;
         basename) echo guest_basename_x0 ;;
         strdup) echo guest_strdup_x0 ;;
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
@@ -75,22 +76,44 @@ map_callback() {
         vfprintf) echo guest_vfprintf_x0_x1_x2 ;;
         vasprintf) echo guest_vasprintf_x0_x1_x2 ;;
         posix_memalign) echo guest_posix_memalign_x0_x1_x2 ;;
-        pthread_mutex_init|pthread_mutex_destroy|sigemptyset) echo ret_0 ;;
+        pthread_mutex_init|pthread_mutex_destroy|pthread_mutex_trylock|sigemptyset) echo ret_0 ;;
+        pthread_mutexattr_init|pthread_mutexattr_destroy|pthread_mutexattr_settype) echo ret_0 ;;
         bind|connect|getsockname|sendto|socket|poll|select) echo ret_neg1 ;;
-        mkdir|prctl|uname) echo ret_0 ;;
+        mkdir|prctl|uname|rmdir) echo ret_0 ;;
         dup2|fork|execve|execl|pipe|eventfd|accept) echo ret_neg1 ;;
         fileno|getppid|rand|clock) echo ret_1 ;;
-        getaddrinfo|ioctl|lstat|rename|unlink|access|chmod|nanosleep|usleep|sleep|kill|sigprocmask|sigaltstack) echo ret_neg1 ;;
-        gethostbyname|inet_ntoa|inet_addr|strerror|realpath) echo ret_0 ;;
+        srand) echo ret_0 ;;
+        getaddrinfo|ioctl|lstat|rename|unlink|access|chmod|nanosleep|usleep|sleep|kill|sigaltstack|ptrace) echo ret_neg1 ;;
+        gethostbyname|inet_ntoa|inet_addr|inet_ntop|strerror|realpath) echo ret_0 ;;
+        inet_aton|inet_pton) echo ret_1 ;;
         localtime_r) echo ret_x1 ;;
-        pthread_cond_destroy|pthread_cond_signal|pthread_cond_timedwait|pthread_equal) echo ret_0 ;;
-        sigaddset|sigfillset|signal|sigsetjmp) echo ret_0 ;;
-        strerror_r|strftime|wcrtomb|mbrtowc|mbrlen|mbsnrtowcs|mbsrtowcs|mbtowc) echo ret_1 ;;
+        pthread_cond_destroy|pthread_cond_signal|pthread_cond_timedwait|pthread_equal|pthread_setname_np) echo ret_0 ;;
+        sigaddset|sigfillset|signal|sigsetjmp|siglongjmp|pthread_sigmask|sigprocmask|sched_yield) echo ret_0 ;;
+        strerror_r|strftime|wcrtomb|mbrtowc|mbrlen|mbsnrtowcs|mbsrtowcs|mbtowc|btowc|wctob) echo ret_1 ;;
         __ctype_get_mb_cur_max) echo ret_1 ;;
-        wmemcpy|wmemmove|wmemset|strcat|strtok|strcoll|strcasecmp|strxfrm|wcscoll|wcsxfrm|wcsnrtombs) echo ret_x0 ;;
+        wmemcpy|wmemmove|wmemset|strcat|strtok|strtok_r|strcoll|strcasecmp|strxfrm|wcscoll|wcsxfrm|wcsnrtombs) echo ret_x0 ;;
+        strcspn|wmemcmp) echo ret_0 ;;
+        wmemchr) echo ret_0 ;;
         wcslen) echo ret_0 ;;
-        popen|newlocale|uselocale) echo ret_sp ;;
-        freelocale|puts|fputs|rewind) echo ret_0 ;;
+        popen|newlocale|uselocale|localeconv|localtime|setlocale|AAssetManager_fromJava|AAssetManager_open|AAsset_open) echo ret_sp ;;
+        freelocale|puts|fputs|rewind|clearerr|feof|fgetpos|fsetpos|fseeko|setvbuf) echo ret_0 ;;
+        fsync|ftruncate|freeaddrinfo|__assert2|__libc_init|AAsset_close) echo ret_0 ;;
+        AAsset_read|AAsset_seek|AAsset_getLength64|AAsset_openFileDescriptor64|recv|recvfrom|send|writev) echo ret_1 ;;
+        shutdown|listen) echo ret_0 ;;
+        eglChooseConfig|eglInitialize|eglMakeCurrent|eglTerminate|eglDestroyContext|eglDestroySurface) echo ret_1 ;;
+        eglCreateContext|eglCreatePbufferSurface|eglGetCurrentContext|eglGetDisplay|glGetString) echo ret_sp ;;
+        optarg|__stack_chk_guard|_ctype_) echo ret_sp ;;
+        optind) echo ret_0 ;;
+        __read_chk|ftello|geteuid|getpagesize|getpriority|mktime) echo ret_1 ;;
+        __strncpy_chk2) echo guest_strncpy_x0_x1_x2 ;;
+        __strcpy_chk) echo guest_strcpy_x0_x1 ;;
+        strtold) echo guest_strtod_x0_x1 ;;
+        powf) echo guest_pow_x0_x1 ;;
+        isalnum|isalpha|iswalpha|iswblank|iswcntrl|iswdigit|iswlower|iswprint|iswpunct|iswspace|iswupper|iswxdigit) echo ret_0 ;;
+        acos|asin|atan|atan2|sin|modf|vsprintf|perror|ferror) echo ret_0 ;;
+        egl*) echo ret_0 ;;
+        gl*) echo ret_0 ;;
+        AAsset*) echo ret_0 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell)
@@ -117,7 +140,7 @@ map_callback() {
             fi
             echo ret_sp
             ;;
-        read|write|fread|fwrite|fputc|open|lseek|waitpid|readlink|getauxval)
+        read|write|fread|fwrite|fputc|open|lseek|lseek64|waitpid|readlink|getauxval)
             if is_strict_mode; then
                 return 1
             fi
