@@ -192,11 +192,16 @@ make run-import-callback-sscanf-float-n-scanset-example
 make run-import-callback-sscanf-stack-varargs-example
 make run-import-callback-sscanf-scanset-invert-example
 make run-kingshot-import-profile
+make run-kingshot-import-profile-strict
 make run-kingshot-import-profile-all
+make run-kingshot-import-profile-all-strict
+make run-kingshot-coverage-gate
 make run-kingshot-smoke
 make run-kingshot-smoke-matrix
+make verify-kingshot
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
+make run-nativebridge-skeleton-jni-probe
 make run-unsupported-log-example
 make run-elf-symbol-example
 ```
@@ -215,13 +220,27 @@ Generate profiles for all `arm64-v8a` libs in the APK:
 make run-kingshot-import-profile-all
 ```
 
+Generate strict profiles (no relaxed fallback stubs for many libc/pthread/syscall symbols):
+
+```sh
+make run-kingshot-import-profile-strict
+make run-kingshot-import-profile-all-strict
+```
+
+Run the coverage regression gate (`reports/kingshot_all_import_coverage.txt` vs `kingshot_coverage_baseline.txt`):
+
+```sh
+make run-kingshot-coverage-gate
+```
+
 Run a smoke execution against one extracted Kingshot ELF symbol with generated import mappings:
 
 ```sh
 make run-kingshot-smoke
 ```
 
-Run smoke tests for the top `N` high-unmapped libs (default `5`):
+Run smoke tests for the top `N` high-unmapped libs and selected symbols per lib
+(defaults: `max_libs=10`, `syms_per_lib=2`, `attempts=2`):
 
 ```sh
 make run-kingshot-smoke-matrix
@@ -230,7 +249,13 @@ make run-kingshot-smoke-matrix
 You can pass custom matrix params directly:
 
 ```sh
-./scripts/run_kingshot_smoke_matrix.sh /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk 8 3
+./scripts/run_kingshot_smoke_matrix.sh /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk 8 3 2
+```
+
+Run an end-to-end verification bundle:
+
+```sh
+make verify-kingshot
 ```
 
 Default `libmain` profile output:
@@ -245,8 +270,10 @@ All-lib profile output also includes:
 - `reports/kingshot_all_import_profiles_summary.txt`
 - `reports/kingshot_all_unmapped_imports.txt`
 - `reports/kingshot_all_unmapped_top_symbols.txt`
+- `reports/kingshot_next_callbacks.txt`
 - `reports/kingshot_all_import_coverage.txt`
 - `reports/kingshot_smoke_matrix_summary.txt`
+- `reports/kingshot_smoke_matrix_exit_reason_summary.txt`
 
 ## NativeBridge Skeleton
 
@@ -255,6 +282,7 @@ Build the placeholder NativeBridge-style stub and loader demo:
 ```sh
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
+make run-nativebridge-skeleton-jni-probe
 ```
 
 Skeleton files live under `nativebridge_skeleton/` and are intentionally minimal.

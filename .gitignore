@@ -4,6 +4,7 @@
 /runtime_api_demo
 /nativebridge_skeleton/libtiny_nativebridge_stub.so
 /nativebridge_skeleton/tiny_nb_loader_demo
+/nativebridge_skeleton/tiny_nb_jni_probe
 
 # Generated helper tools
 /scripts/*_tool

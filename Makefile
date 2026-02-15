@@ -32,6 +32,7 @@ CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
 .PHONY: run-spill-ldxr-stxr64-sp-base-example run-spill-stxr64-fail-sp-base-example run-spill-ldaxr-stlxr64-sp-base-example run-spill-stlxr64-fail-sp-base-example run-spill-ldar-stlr64-sp-base-example run-spill-ldar-stlr32-sp-base-example run-spill-swp64-sp-base-example run-spill-ldadd64-sp-base-example run-spill-cas64-success-sp-base-example run-spill-cas64-fail-sp-base-example run-spill-casp64-success-sp-base-example run-spill-casp64-fail-sp-base-example
 .PHONY: run-spill-casa64-success-sp-base-example run-spill-casl64-fail-sp-base-example run-spill-casal32-rtx0-sp-base-example run-spill-casb-success-sp-base-example run-spill-caslb-fail-sp-base-example run-spill-casah-success-sp-base-example
 .PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-retneg1-example run-import-callback-strtoul-example run-import-callback-posix-memalign-example run-import-callback-posix-memalign-einval-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-vsnprintf-example run-import-callback-vsnprintf-chk-example run-import-callback-vfprintf-example run-import-callback-vasprintf-example run-import-callback-vsscanf-example run-import-callback-snprintf-inf-example run-import-callback-snprintf-trunc-edge-example run-import-callback-strtod-example run-import-callback-strtod-nan-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-import-callback-sscanf-scanset-invert-example run-kingshot-import-profile run-kingshot-import-profile-all run-kingshot-smoke run-kingshot-smoke-matrix run-nativebridge-skeleton-build run-nativebridge-skeleton-demo
+.PHONY: run-kingshot-import-profile-strict run-kingshot-import-profile-all-strict run-kingshot-coverage-gate verify-kingshot run-nativebridge-skeleton-jni-probe
 
 all: tiny_dbt
 
@@ -865,8 +866,17 @@ run-import-callback-sscanf-scanset-invert-example: tiny_dbt
 run-kingshot-import-profile:
 	./scripts/generate_kingshot_import_profile.sh
 
+run-kingshot-import-profile-strict:
+	./scripts/generate_kingshot_import_profile.sh /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk lib/arm64-v8a/libmain.so strict
+
 run-kingshot-import-profile-all:
 	./scripts/generate_kingshot_all_import_profiles.sh
+
+run-kingshot-import-profile-all-strict:
+	./scripts/generate_kingshot_all_import_profiles.sh /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk strict
+
+run-kingshot-coverage-gate:
+	./scripts/check_kingshot_coverage.sh
 
 run-kingshot-smoke: tiny_dbt
 	./scripts/run_kingshot_smoke.sh
@@ -879,6 +889,20 @@ run-nativebridge-skeleton-build:
 
 run-nativebridge-skeleton-demo:
 	$(MAKE) -C nativebridge_skeleton run-demo
+
+run-nativebridge-skeleton-jni-probe:
+	$(MAKE) -C nativebridge_skeleton run-jni-probe
+
+verify-kingshot: tiny_dbt
+	$(MAKE) run-import-callback-vsnprintf-chk-example
+	$(MAKE) run-import-callback-vfprintf-example
+	$(MAKE) run-import-callback-vasprintf-example
+	$(MAKE) run-import-callback-retneg1-example
+	$(MAKE) run-import-callback-strtoul-example
+	$(MAKE) run-import-callback-posix-memalign-example
+	$(MAKE) run-kingshot-import-profile-all
+	./scripts/check_kingshot_coverage.sh
+	./scripts/run_kingshot_smoke_matrix.sh /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk 10 2 2
 
 run-orrreg64-zr-alias-example: tiny_dbt
 	./tiny_dbt D2800541 AA0103E0 D65F03C0

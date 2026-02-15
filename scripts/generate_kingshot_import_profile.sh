@@ -4,6 +4,7 @@ set -eu
 ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APK_PATH=${1:-/home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk}
 LIB_ENTRY=${2:-lib/arm64-v8a/libmain.so}
+PROFILE_MODE=${3:-relaxed}
 LIB_BASENAME=$(basename "$LIB_ENTRY")
 LIB_NAME=${LIB_BASENAME%.so}
 PROFILE_DIR="$ROOT_DIR/profiles"
@@ -12,6 +13,19 @@ CALLBACK_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_callbacks.txt"
 STUB_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_stubs.txt"
 ARGS_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_args.txt"
 UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
+
+case "$PROFILE_MODE" in
+    relaxed|strict)
+        ;;
+    *)
+        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict)" >&2
+        exit 1
+        ;;
+esac
+
+is_strict_mode() {
+    [ "$PROFILE_MODE" = "strict" ]
+}
 
 map_callback() {
     case "$1" in
@@ -46,13 +60,48 @@ map_callback() {
         posix_memalign) echo guest_posix_memalign_x0_x1_x2 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
-        fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell) echo ret_0 ;;
-        pthread_mutex_lock|pthread_mutex_unlock|pthread_once|pthread_key_create|pthread_key_delete|pthread_setspecific|pthread_create|pthread_join|pthread_detach|pthread_cond_wait|pthread_cond_broadcast|pthread_rwlock_wrlock|pthread_rwlock_unlock|pthread_rwlock_rdlock) echo ret_0 ;;
-        close|fclose|fflush|fseek|munmap|mprotect|setsockopt|getsockopt|fcntl|remove|raise|pclose) echo ret_0 ;;
-        __errno|__sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self) echo ret_sp ;;
-        read|write|fread|fwrite|fputc|open|lseek|waitpid|readlink|getauxval) echo ret_1 ;;
-        pthread_getspecific|getpid|gettid|sysconf|clock_gettime|gettimeofday|time|__system_property_get) echo ret_1 ;;
-        syscall|__open_2|_exit|exit) echo ret_neg1 ;;
+        fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_0
+            ;;
+        pthread_mutex_lock|pthread_mutex_unlock|pthread_once|pthread_key_create|pthread_key_delete|pthread_setspecific|pthread_create|pthread_join|pthread_detach|pthread_cond_wait|pthread_cond_broadcast|pthread_rwlock_wrlock|pthread_rwlock_unlock|pthread_rwlock_rdlock)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_0
+            ;;
+        close|fclose|fflush|fseek|munmap|mprotect|setsockopt|getsockopt|fcntl|remove|raise|pclose)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_0
+            ;;
+        __errno|__sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_sp
+            ;;
+        read|write|fread|fwrite|fputc|open|lseek|waitpid|readlink|getauxval)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_1
+            ;;
+        pthread_getspecific|getpid|gettid|sysconf|clock_gettime|gettimeofday|time|__system_property_get)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_1
+            ;;
+        syscall|__open_2|_exit|exit)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_neg1
+            ;;
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
         dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint) echo ret_x0 ;;
@@ -126,6 +175,7 @@ fi
     echo "# Auto-generated import arguments for tiny_dbt"
     echo "# Source APK: $APK_PATH"
     echo "# Source entry: $LIB_ENTRY"
+    echo "# Profile mode: $PROFILE_MODE"
     while IFS= read -r spec; do
         [ -n "$spec" ] && printf '%s %s \\\n' "--elf-import-callback" "$spec"
     done < "$CALLBACK_FILE"
@@ -139,5 +189,6 @@ echo "  callbacks: $CALLBACK_FILE"
 echo "  stubs:     $STUB_FILE"
 echo "  args:      $ARGS_FILE"
 echo "  unmapped:  $UNMAPPED_FILE"
+echo "  mode:      $PROFILE_MODE"
 echo "  mapped:    $mapped_count"
 echo "  unmapped:  $unmapped_count"
