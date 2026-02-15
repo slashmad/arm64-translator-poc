@@ -38,7 +38,15 @@ choose_fallback_symbol() {
 
 choose_fallback_symbol_index() {
     readelf --wide -Ws "$1" | awk '
-        $4 == "FUNC" && $7 != "UND" && $3 != "0" {
+        ($4 == "FUNC") && ($5 == "GLOBAL" || $5 == "WEAK") && $7 != "UND" {
+            size = $3 + 0
+            value = $2
+            if (size <= 0 || (size % 4) != 0) {
+                next
+            }
+            if (value ~ /^0+$/) {
+                next
+            }
             idx = $1
             sub(/:$/, "", idx)
             if (idx ~ /^[0-9]+$/) {
@@ -179,6 +187,23 @@ unsupported_count=$(grep -cve '^[[:space:]]*$' "$UNSUPPORTED_FILE" || true)
 trace_count=$(grep -cve '^[[:space:]]*$' "$TRACE_FILE" || true)
 exit_reason=$(sed -n 's/^debug:.*exit_reason=\([0-9][0-9]*\).*/\1/p' "$TMP_OUT" | tail -n 1)
 [ -z "$exit_reason" ] && exit_reason="-"
+if [ "$exit_reason" = "-" ] && [ "$tiny_rc" -ne 0 ]; then
+    if grep -q 'code_size must be multiple of 4' "$TMP_OUT"; then
+        exit_reason="bad_code_size"
+    elif grep -q 'translated stream must include RET' "$TMP_OUT"; then
+        exit_reason="no_ret"
+    elif grep -q 'failed to locate runnable symbol index' "$TMP_OUT"; then
+        exit_reason="symbol_index_unrunnable"
+    elif grep -q 'symbol index .* has size 0' "$TMP_OUT"; then
+        exit_reason="symbol_size_zero"
+    elif grep -q 'invalid logical-immediate encoding' "$TMP_OUT"; then
+        exit_reason="invalid_logical_imm"
+    elif grep -q 'unsupported opcode executed' "$TMP_OUT"; then
+        exit_reason="unsupported_opcode"
+    else
+        exit_reason="error"
+    fi
+fi
 if [ "$tiny_rc" -eq 0 ]; then
     status="ok"
 else

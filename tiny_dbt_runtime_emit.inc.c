@@ -2872,8 +2872,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         int x86_dst;
 
         if (hw > 1u) {
-            fprintf(stderr, "MOVZ (W) with hw>1 unsupported at pc=%zu\n", pc);
-            exit(1);
+            goto unsupported_insn;
         }
         if (rd == 31u) {
             return; /* write-discard to WZR */
@@ -2898,8 +2897,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         int x86_dst;
 
         if (hw > 1u) {
-            fprintf(stderr, "MOVN (W) with hw>1 unsupported at pc=%zu\n", pc);
-            exit(1);
+            goto unsupported_insn;
         }
         if (rd == 31u) {
             return; /* write-discard to WZR */
@@ -2926,8 +2924,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         const int tmp = 10; /* scratch */
 
         if (hw > 1u) {
-            fprintf(stderr, "MOVK (W) with hw>1 unsupported at pc=%zu\n", pc);
-            exit(1);
+            goto unsupported_insn;
         }
         if (rd == 31u) {
             return; /* write-discard to WZR */
@@ -2964,8 +2961,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         const bool set_flags = (opc == 3u);
 
         if (!decode_logical_immediate_mask(sf, n, immr, imms, &imm_mask)) {
-            fprintf(stderr, "invalid logical-immediate encoding at pc=%zu\n", pc);
-            exit(1);
+            goto unsupported_insn;
         }
         if (is_w) {
             imm_mask &= 0xFFFFFFFFull;
@@ -8559,6 +8555,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         return;
     }
 
+unsupported_insn:
     unsupportedv_push(unsupported_patches, x86_jmp_rel32(cb), (uint64_t)(pc * 4u), insn);
     return;
 }

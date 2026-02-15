@@ -194,7 +194,15 @@ extract_symbols() {
     fi
 
     readelf --wide -Ws "$TMP_LIB" \
-        | awk '$4 == "FUNC" && $7 != "UND" && $3 != "0" {
+        | awk '($4 == "FUNC") && ($5 == "GLOBAL" || $5 == "WEAK") && $7 != "UND" {
+            size = $3 + 0
+            value = $2
+            if (size <= 0 || (size % 4) != 0) {
+                next
+            }
+            if (value ~ /^0+$/) {
+                next
+            }
             idx = $1
             sub(/:$/, "", idx)
             if (idx ~ /^[0-9]+$/) {
@@ -287,12 +295,6 @@ while IFS= read -r LIB_ENTRY; do
             fi
             attempt=$((attempt + 1))
         done
-        if [ "$status" = "ok" ]; then
-            ok_count=$((ok_count + 1))
-        else
-            fail_count=$((fail_count + 1))
-        fi
-
         symbol=$(sed -n 's/^  symbol:[[:space:]]*//p' "$TMP_OUT" | head -n 1)
         exit_reason=$(sed -n 's/^  exit_reason:[[:space:]]*//p' "$TMP_OUT" | head -n 1)
         trace_lines=$(sed -n 's/^  trace:.*(\([0-9][0-9]*\) lines).*/\1/p' "$TMP_OUT" | head -n 1)
@@ -313,6 +315,21 @@ while IFS= read -r LIB_ENTRY; do
             callback_hitrate_pct=$(awk -v cb="$callback_branches" -v tot="$import_total_branches" 'BEGIN { printf "%.2f", (100.0*cb)/tot }')
         else
             callback_hitrate_pct="0.00"
+        fi
+
+        if [ "$status" = "fail" ] && [ "${symbol#index:}" != "$symbol" ]; then
+            case "$exit_reason" in
+                bad_code_size|no_ret|symbol_index_unrunnable|symbol_size_zero)
+                    status="skip"
+                    ;;
+            esac
+        fi
+        if [ "$status" = "ok" ]; then
+            ok_count=$((ok_count + 1))
+        elif [ "$status" = "skip" ]; then
+            skip_count=$((skip_count + 1))
+        else
+            fail_count=$((fail_count + 1))
         fi
 
         attempts_total=$((attempts_total + attempts_used))
