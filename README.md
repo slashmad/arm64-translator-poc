@@ -111,6 +111,7 @@ Environment alternatives:
 - `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, and `guest_tolower_x0` provide ctype hooks.
 - `guest_errno_ptr` returns a guest-memory errno slot, while `ret_neg1_enosys`, `ret_neg1_eagain`, `ret_neg1_eintr`, `ret_neg1_eacces`, `ret_neg1_enoent`, `ret_neg1_eperm`, and `ret_neg1_etimedout` return `-1` and set that errno slot.
 - `guest_open_x0_x1_x2`, `guest_openat_x0_x1_x2_x3`, `guest_read_x0_x1_x2`, `guest_write_x0_x1_x2`, and `guest_close_x0` provide a synthetic guest-FD model for file/I/O call paths.
+- `FCVTZS`/`FCVTZU` now use stricter PoC conversion semantics: NaN clamps to `0`, overflow clamps to signed/unsigned bounds, and in-range values keep trunc-toward-zero behavior.
 - `guest_handle_x0` now uses a bounded per-run handle cache to keep repeated handle-like imports stable without unbounded guest allocations.
 - `guest_gmtime_x0`, `guest_ctime_x0`, `guest_tzset_0`, `guest_daylight_ptr`, and `guest_timezone_ptr` expose basic time/tz hooks via guest-memory slots.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
@@ -225,7 +226,10 @@ make run-kingshot-smoke-matrix
 make run-kingshot-smoke-matrix-ci
 make run-kingshot-mode-regression-ci
 make run-kingshot-e2e-batch
+make run-fp-conversion-edge-check
+make run-unsupported-top20-triage
 make verify-kingshot
+make verify-fp-conversion-ci
 make verify-kingshot-ci
 make verify-kingshot-modes-ci
 make run-nativebridge-skeleton-build

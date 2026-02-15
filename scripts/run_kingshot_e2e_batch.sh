@@ -93,13 +93,13 @@ IFS=$old_ifs
 
     echo "# Blockers"
     if [ "$fail_count" -gt 0 ]; then
-        awk 'NF >= 8 && $1 == "fail" {printf "- fail %s %s (rc=%s exit_reason=%s)\n", $2, $3, $4, $5}' "$REPORT_FILE"
+        awk 'NF >= 8 && ($1 == "ok" || $1 == "fail") && $1 == "fail" {printf "- fail %s %s (rc=%s exit_reason=%s)\n", $2, $3, $4, $5}' "$REPORT_FILE"
     else
         echo "- no hard fail blockers in selected e2e batch"
     fi
 
-    if awk 'NF >= 8 && $7 != "-" && $7 != "0" {found=1} END{exit !found}' "$REPORT_FILE"; then
-        awk 'NF >= 8 && $7 != "-" && $7 != "0" {printf "- unsupported-opcode traces present for %s %s: %s lines\n", $2, $3, $7}' "$REPORT_FILE"
+    if awk 'NF >= 8 && ($1 == "ok" || $1 == "fail") && $7 != "-" && $7 != "0" {found=1} END{exit !found}' "$REPORT_FILE"; then
+        awk 'NF >= 8 && ($1 == "ok" || $1 == "fail") && $7 != "-" && $7 != "0" {printf "- unsupported-opcode traces present for %s %s: %s lines\n", $2, $3, $7}' "$REPORT_FILE"
     else
         echo "- no unsupported-opcode blockers observed"
     fi

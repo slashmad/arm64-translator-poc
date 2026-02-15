@@ -71,6 +71,8 @@
 - NativeBridge-demot kan nu även trigga en riktig ELF-symbol smoke-körning via `TINY_NB_SMOKE_*` (mål: `make run-nativebridge-skeleton-runtime-smoke`).
 - Kingshot all-lib importtäckning i relaxed-läge är nu `100.00%` (1776/1776 mapped, 0 unmapped).
 - Batchad E2E-körning för utvalda riktiga bibliotek finns nu via `make run-kingshot-e2e-batch` och `reports/kingshot_e2e_batch_report.txt`.
+- FP-konverteringar har nu en edge-gate (`make run-fp-conversion-edge-check`) som täcker NaN/inf/subnormal/overflow/trunc för `SCVTF/UCVTF/FCVTZS/FCVTZU`.
+- Unsupported-triage finns nu via `make run-unsupported-top20-triage` och skriver `reports/unsupported_top20_summary.txt` (runtime först, inventory fallback).
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).

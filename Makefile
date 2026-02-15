@@ -37,6 +37,7 @@ KSHOT_PROFILE_MODE ?= relaxed
 .PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-retneg1-example run-import-callback-strtoul-example run-import-callback-posix-memalign-example run-import-callback-posix-memalign-einval-example run-import-callback-basename-example run-import-callback-strdup-example run-import-callback-strtof-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-vsnprintf-example run-import-callback-vsnprintf-chk-example run-import-callback-vfprintf-example run-import-callback-vasprintf-example run-import-callback-vsscanf-example run-import-callback-snprintf-inf-example run-import-callback-snprintf-trunc-edge-example run-import-callback-strtod-example run-import-callback-strtod-nan-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-import-callback-sscanf-scanset-invert-example run-kingshot-import-profile run-kingshot-import-profile-all run-kingshot-smoke run-kingshot-smoke-matrix run-nativebridge-skeleton-build run-nativebridge-skeleton-demo run-nativebridge-skeleton-runtime-smoke run-kingshot-e2e-batch
 .PHONY: run-kingshot-import-profile-strict run-kingshot-import-profile-all-strict run-kingshot-import-profile-minimal run-kingshot-import-profile-all-minimal run-kingshot-coverage-gate verify-kingshot run-nativebridge-skeleton-jni-probe run-kingshot-smoke-matrix-ci run-kingshot-mode-regression-ci
 .PHONY: run-kingshot-import-profile-compat run-kingshot-import-profile-all-compat verify-kingshot-ci verify-kingshot-modes-ci
+.PHONY: run-fp-conversion-edge-check verify-fp-conversion-ci run-unsupported-top20-triage
 .PHONY: run-import-callback-pow-example run-import-callback-sqrt-example run-import-callback-cos-example run-import-callback-tan-example run-import-callback-exp-example run-import-callback-log-example run-import-callback-log10-example run-import-callback-floor-example run-import-callback-ceil-example run-import-callback-trunc-example run-import-callback-fmod-example run-import-callback-sin-example run-import-callback-sinh-example run-import-callback-tanh-example run-import-callback-sinf-example run-import-callback-sincosf-example run-import-callback-exp2f-example run-import-callback-log2f-example run-import-callback-log10f-example run-import-callback-lround-example
 .PHONY: run-import-callback-islower-example run-import-callback-isspace-example run-import-callback-isxdigit-example run-import-callback-isupper-example run-import-callback-toupper-example run-import-callback-tolower-example
 .PHONY: run-import-callback-retneg1-enosys-example run-import-callback-retneg1-eagain-example run-import-callback-retneg1-eintr-example run-import-callback-retneg1-eacces-example run-import-callback-retneg1-enoent-example run-import-callback-retneg1-eperm-example run-import-callback-retneg1-etimedout-example run-import-callback-open-example run-import-callback-openat-example run-import-callback-read-example run-import-callback-write-close-example run-import-callback-errno-slot-example run-import-callback-handle-example run-import-callback-ctime-example run-import-callback-gmtime-example run-import-callback-daylight-example run-import-callback-timezone-example
@@ -1035,6 +1036,15 @@ run-kingshot-import-profile-all-minimal:
 run-kingshot-coverage-gate:
 	./scripts/check_kingshot_coverage.sh
 
+run-fp-conversion-edge-check: tiny_dbt
+	./scripts/check_fp_conversion_edges.sh
+
+verify-fp-conversion-ci: tiny_dbt
+	$(MAKE) run-fp-conversion-edge-check
+
+run-unsupported-top20-triage:
+	./scripts/triage_unsupported_top20.sh
+
 run-kingshot-smoke: tiny_dbt
 	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) ./scripts/run_kingshot_smoke.sh $(KSHOT_APK_PATH)
 
@@ -1125,6 +1135,7 @@ verify-kingshot: tiny_dbt
 	$(MAKE) run-import-callback-tolower-example
 	$(MAKE) run-import-callback-strtoul-example
 	$(MAKE) run-import-callback-posix-memalign-example
+	$(MAKE) run-fp-conversion-edge-check
 	$(MAKE) run-kingshot-import-profile-all
 	./scripts/check_kingshot_coverage.sh
 	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) ./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH) 10 2 2
@@ -1132,6 +1143,7 @@ verify-kingshot: tiny_dbt
 verify-kingshot-ci: tiny_dbt
 	$(MAKE) verify-kingshot
 	$(MAKE) run-kingshot-smoke-matrix-ci
+	$(MAKE) run-unsupported-top20-triage
 
 verify-kingshot-modes-ci: tiny_dbt
 	$(MAKE) verify-kingshot-ci

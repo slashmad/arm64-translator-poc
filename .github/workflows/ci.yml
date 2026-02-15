@@ -25,6 +25,9 @@ jobs:
       - name: Build
         run: make tiny_dbt
 
+      - name: FP Conversion Edge Gate
+        run: make run-fp-conversion-edge-check
+
       - name: Callback Regressions
         run: |
           make run-import-callback-retneg1-example

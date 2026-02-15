@@ -7725,22 +7725,94 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
             bool is_double = (insn & 0x00400000u) != 0u;
             bool is_64 = (insn & 0x80000000u) != 0u;
             int32_t rn_disp = state_v_qword_offset(rn, 0);
+            size_t to_nan_path;
+            size_t to_hi_path;
+            size_t to_lo_path;
+            size_t to_done_from_normal;
+            size_t to_done_from_nan;
+            size_t to_done_from_hi;
+            uint64_t pos_half_threshold = is_64 ? (1ull << 62) : (1ull << 30);
+            uint64_t neg_threshold = is_64 ? 0x8000000000000000ull : (uint64_t)(int64_t)-2147483648ll;
 
             if (is_double) {
                 x86_movsd_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
+            } else {
+                x86_movss_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
+            }
+
+            /*
+             * Stricter PoC semantics for FCVTZS:
+             * - NaN -> 0
+             * - +overflow (>= +2^(bits-1)) -> signed max
+             * - -overflow (<= -2^(bits-1)) -> signed min
+             * - otherwise -> trunc toward zero
+             */
+            if (is_double) {
+                x86_ucomisd_rr(cb, 0, 0);
+            } else {
+                x86_ucomiss_rr(cb, 0, 0);
+            }
+            to_nan_path = x86_jcc_rel32(cb, 0x8A); /* JP (unordered / NaN) */
+
+            x86_mov_imm64(cb, 13, pos_half_threshold);
+            if (is_double) {
+                x86_cvtsi2sd_xmm_from_r64(cb, 1, 13);
+                x86_addsd_rr(cb, 1, 1); /* +2^(bits-1) */
+                x86_ucomisd_rr(cb, 0, 1);
+            } else {
+                x86_cvtsi2ss_xmm_from_r64(cb, 1, 13);
+                x86_addss_rr(cb, 1, 1); /* +2^(bits-1) */
+                x86_ucomiss_rr(cb, 0, 1);
+            }
+            to_hi_path = x86_jcc_rel32(cb, 0x83); /* JAE */
+
+            x86_mov_imm64(cb, 13, neg_threshold);
+            if (is_double) {
+                x86_cvtsi2sd_xmm_from_r64(cb, 2, 13); /* -2^(bits-1) */
+                x86_ucomisd_rr(cb, 0, 2);
+            } else {
+                x86_cvtsi2ss_xmm_from_r64(cb, 2, 13); /* -2^(bits-1) */
+                x86_ucomiss_rr(cb, 0, 2);
+            }
+            to_lo_path = x86_jcc_rel32(cb, 0x86); /* JBE */
+
+            if (is_double) {
                 if (is_64) {
                     x86_cvttsd2si_r64_from_xmm(cb, 10, 0);
                 } else {
                     x86_cvttsd2si_r32_from_xmm(cb, 10, 0);
                 }
             } else {
-                x86_movss_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
                 if (is_64) {
                     x86_cvttss2si_r64_from_xmm(cb, 10, 0);
                 } else {
                     x86_cvttss2si_r32_from_xmm(cb, 10, 0);
                 }
             }
+            to_done_from_normal = x86_jmp_rel32(cb);
+
+            patch_rel32_at(cb->data, to_nan_path, cb->len);
+            x86_mov_imm64(cb, 10, 0);
+            to_done_from_nan = x86_jmp_rel32(cb);
+
+            patch_rel32_at(cb->data, to_hi_path, cb->len);
+            if (is_64) {
+                x86_mov_imm64(cb, 10, 0x7FFFFFFFFFFFFFFFull);
+            } else {
+                x86_mov_imm64(cb, 10, 0x7FFFFFFFull);
+            }
+            to_done_from_hi = x86_jmp_rel32(cb);
+
+            patch_rel32_at(cb->data, to_lo_path, cb->len);
+            if (is_64) {
+                x86_mov_imm64(cb, 10, 0x8000000000000000ull);
+            } else {
+                x86_mov_imm64(cb, 10, 0x80000000ull);
+            }
+
+            patch_rel32_at(cb->data, to_done_from_normal, cb->len);
+            patch_rel32_at(cb->data, to_done_from_nan, cb->len);
+            patch_rel32_at(cb->data, to_done_from_hi, cb->len);
             writeback_guest_xreg_unless_zr(cb, rd, 10, pc, "FCVTZS");
             return;
         }
@@ -7755,33 +7827,73 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
             bool is_double = (insn & 0x00400000u) != 0u;
             bool is_64 = (insn & 0x80000000u) != 0u;
             int32_t rn_disp = state_v_qword_offset(rn, 0);
+            size_t to_zero_nan;
+            size_t to_zero_nonpos;
+            size_t to_clamp_max;
+            size_t to_high_path;
+            size_t to_done_from_fast;
+            size_t to_done_from_high;
+            size_t to_done_from_zero;
+            uint64_t high_half_threshold = is_64 ? (1ull << 62) : (1ull << 30);
 
             /*
-             * Handle unsigned high range explicitly:
-             * - 64-bit: threshold 2^63
-             * - 32-bit: threshold 2^31
+             * Handle unsigned range explicitly:
+             * - NaN / <= 0 -> 0
+             * - >= 2^bits -> UINT{32,64}_MAX
+             * - middle range:
+             *     [0, 2^(bits-1))    -> direct CVTT
+             *     [2^(bits-1), 2^bits) -> subtract threshold, CVTT, add threshold
              *
-             * Below threshold we can use signed CVTT directly.
-             * Above/equal threshold: subtract threshold, CVTT, then add threshold back.
+             * CVTT keeps trunc-toward-zero semantics regardless of host rounding mode.
              */
-            size_t high_path_off;
-            size_t done_conv_off;
-            uint64_t half_threshold = is_64 ? (1ull << 62) : (1ull << 30);
-
             if (is_double) {
                 x86_movsd_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
-                x86_mov_imm64(cb, 13, half_threshold);
-                x86_cvtsi2sd_xmm_from_r64(cb, 1, 13);
-                x86_addsd_rr(cb, 1, 1); /* xmm1 = threshold */
-                x86_ucomisd_rr(cb, 0, 1);
             } else {
                 x86_movss_xmm_from_mem_base_disp32(cb, 0, 3, rn_disp);
-                x86_mov_imm64(cb, 13, half_threshold);
+            }
+
+            if (is_double) {
+                x86_ucomisd_rr(cb, 0, 0);
+            } else {
+                x86_ucomiss_rr(cb, 0, 0);
+            }
+            to_zero_nan = x86_jcc_rel32(cb, 0x8A); /* JP */
+
+            x86_mov_imm64(cb, 13, 0);
+            if (is_double) {
+                x86_cvtsi2sd_xmm_from_r64(cb, 2, 13); /* 0.0 */
+                x86_ucomisd_rr(cb, 0, 2);
+            } else {
+                x86_cvtsi2ss_xmm_from_r64(cb, 2, 13); /* 0.0 */
+                x86_ucomiss_rr(cb, 0, 2);
+            }
+            to_zero_nonpos = x86_jcc_rel32(cb, 0x86); /* JBE */
+
+            x86_mov_imm64(cb, 13, high_half_threshold);
+            if (is_double) {
+                x86_cvtsi2sd_xmm_from_r64(cb, 3, 13);
+                x86_addsd_rr(cb, 3, 3); /* 2^(bits-1) */
+                x86_addsd_rr(cb, 3, 3); /* 2^bits */
+                x86_ucomisd_rr(cb, 0, 3);
+            } else {
+                x86_cvtsi2ss_xmm_from_r64(cb, 3, 13);
+                x86_addss_rr(cb, 3, 3); /* 2^(bits-1) */
+                x86_addss_rr(cb, 3, 3); /* 2^bits */
+                x86_ucomiss_rr(cb, 0, 3);
+            }
+            to_clamp_max = x86_jcc_rel32(cb, 0x83); /* JAE */
+
+            x86_mov_imm64(cb, 13, high_half_threshold);
+            if (is_double) {
+                x86_cvtsi2sd_xmm_from_r64(cb, 1, 13);
+                x86_addsd_rr(cb, 1, 1); /* 2^(bits-1) */
+                x86_ucomisd_rr(cb, 0, 1);
+            } else {
                 x86_cvtsi2ss_xmm_from_r64(cb, 1, 13);
-                x86_addss_rr(cb, 1, 1); /* xmm1 = threshold */
+                x86_addss_rr(cb, 1, 1); /* 2^(bits-1) */
                 x86_ucomiss_rr(cb, 0, 1);
             }
-            high_path_off = x86_jcc_rel32(cb, 0x83); /* JAE */
+            to_high_path = x86_jcc_rel32(cb, 0x83); /* JAE */
 
             /* Fast path: value < threshold */
             if (is_double) {
@@ -7797,10 +7909,10 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
                     x86_cvttss2si_r32_from_xmm(cb, 10, 0);
                 }
             }
-            done_conv_off = x86_jmp_rel32(cb);
+            to_done_from_fast = x86_jmp_rel32(cb);
 
             /* High path: value >= threshold */
-            patch_rel32_at(cb->data, high_path_off, cb->len);
+            patch_rel32_at(cb->data, to_high_path, cb->len);
             if (is_double) {
                 x86_subsd_rr(cb, 0, 1);
                 if (is_64) {
@@ -7822,8 +7934,23 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
             } else {
                 x86_add_imm32_32(cb, 10, 0x80000000u);
             }
+            to_done_from_high = x86_jmp_rel32(cb);
 
-            patch_rel32_at(cb->data, done_conv_off, cb->len);
+            patch_rel32_at(cb->data, to_zero_nan, cb->len);
+            patch_rel32_at(cb->data, to_zero_nonpos, cb->len);
+            x86_mov_imm64(cb, 10, 0);
+            to_done_from_zero = x86_jmp_rel32(cb);
+
+            patch_rel32_at(cb->data, to_clamp_max, cb->len);
+            if (is_64) {
+                x86_mov_imm64(cb, 10, UINT64_MAX);
+            } else {
+                x86_mov_imm64(cb, 10, 0xFFFFFFFFull);
+            }
+
+            patch_rel32_at(cb->data, to_done_from_fast, cb->len);
+            patch_rel32_at(cb->data, to_done_from_high, cb->len);
+            patch_rel32_at(cb->data, to_done_from_zero, cb->len);
             writeback_guest_xreg_unless_zr(cb, rd, 10, pc, "FCVTZU");
             return;
         }
