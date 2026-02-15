@@ -57,6 +57,8 @@
 - Import-callbacks täcker nu även `guest_vsnprintf_chk_x0_x1_x4_x5` för `__vsnprintf_chk`.
 - Import-callbacks täcker nu även `guest_vfprintf_x0_x1_x2` och `guest_vasprintf_x0_x1_x2`.
 - Generella callback-opcodes `ret_0` och `ret_1` finns nu för snabbare import-stubbing.
+- Generell callback-opcode `ret_neg1` finns nu för felvägsstubbing av syscalls/libc-funktioner.
+- Import-callbacks täcker nu även `guest_strtoul_x0_x1_x2` och `guest_posix_memalign_x0_x1_x2`.
 - Kingshot-profiler mappar nu fler fortify/bionic-varianter (`__memcpy_chk`, `__memmove_chk`, `__memset_chk`, `__strlen_chk`, `__strchr_chk`, `__android_log_vprint`).
 - Edge-case regressioner finns nu för `snprintf` (`inf/nan`, trunc-edge) och `sscanf`/`strtod` (inverterad scanset, `nan(...)`).
 - Ett första NativeBridge/loader-skelett finns nu i `nativebridge_skeleton/` (`make run-nativebridge-skeleton-build`, `make run-nativebridge-skeleton-demo`).

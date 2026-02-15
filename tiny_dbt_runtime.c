@@ -75,6 +75,7 @@ enum {
 enum {
     IMPORT_CB_RET_0 = 0x01,
     IMPORT_CB_RET_1 = 0x02,
+    IMPORT_CB_RET_NEG1 = 0x03,
     IMPORT_CB_RET_X0 = 0x10,
     IMPORT_CB_RET_X1 = 0x11,
     IMPORT_CB_RET_X2 = 0x12,
@@ -115,7 +116,9 @@ enum {
     IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69,
     IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A,
     IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2 = 0x6B,
-    IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C
+    IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C,
+    IMPORT_CB_GUEST_STRTOUL_X0_X1_X2 = 0x6D,
+    IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E
 };
 
 struct TinyDbt {
@@ -201,12 +204,14 @@ static void emit_preserve_guest_flags_end(CodeBuf *cb);
 static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t callback_id);
 static bool guest_heap_alloc(CPUState *state, uint64_t req, uint64_t *out_ptr, uint64_t *out_size);
 static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req, uint64_t *out_ptr);
+static bool guest_heap_alloc_aligned(CPUState *state, uint64_t align, uint64_t req, uint64_t *out_ptr);
 static bool guest_mem_range_valid(uint64_t addr, uint64_t len);
 static int64_t guest_strcmp_impl(const uint8_t *mem, uint64_t a_addr, uint64_t b_addr, uint64_t limit, bool bounded);
 static uint64_t guest_strnlen_scan(const uint8_t *mem, uint64_t addr, uint64_t max_len, bool *out_terminated);
 static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end);
 static bool guest_ascii_isspace(uint8_t ch);
 static int guest_digit_value(uint8_t ch);
+static bool guest_is_power_of_two_u64(uint64_t value);
 static bool guest_write_scalar(uint8_t *mem, uint64_t addr, const void *src, size_t len);
 static bool guest_vararg_read_u64(const CPUState *state, unsigned *arg_idx, uint64_t *out_value);
 static bool guest_prepare_vsnprintf_state(const CPUState *state, uint64_t va_list_addr, CPUState *out_state);
@@ -338,6 +343,51 @@ static bool guest_heap_realloc_last(CPUState *state, uint64_t ptr, uint64_t req,
     return true;
 }
 
+static bool guest_heap_alloc_aligned(CPUState *state, uint64_t align, uint64_t req, uint64_t *out_ptr) {
+    uint64_t base = 0;
+    uint64_t brk = 0;
+    uint64_t ptr = 0;
+    uint64_t size = 0;
+    uint64_t mask = 0;
+
+    if (!state || !out_ptr || align < sizeof(uint64_t) || !guest_is_power_of_two_u64(align)) {
+        return false;
+    }
+
+    if (req > UINT64_MAX - 15u) {
+        return false;
+    }
+    size = (req + 15u) & ~15ull;
+    if (size == 0) {
+        size = 16u; /* match malloc-like minimum allocation in PoC mode */
+    }
+
+    base = state->heap_base ? state->heap_base : 0x1000u;
+    if (base >= (uint64_t)GUEST_MEM_SIZE) {
+        return false;
+    }
+    brk = state->heap_brk;
+    if (brk < base) {
+        brk = base;
+    }
+
+    mask = align - 1u;
+    if (brk > UINT64_MAX - mask) {
+        return false;
+    }
+    ptr = (brk + mask) & ~mask;
+    if (ptr > (uint64_t)GUEST_MEM_SIZE || size > (uint64_t)GUEST_MEM_SIZE - ptr) {
+        return false;
+    }
+
+    state->heap_base = base;
+    state->heap_brk = ptr + size;
+    state->heap_last_ptr = ptr;
+    state->heap_last_size = size;
+    *out_ptr = ptr;
+    return true;
+}
+
 static bool guest_mem_range_valid(uint64_t addr, uint64_t len) {
     if (addr > (uint64_t)GUEST_MEM_SIZE || len > (uint64_t)GUEST_MEM_SIZE) {
         return false;
@@ -415,6 +465,10 @@ static int guest_digit_value(uint8_t ch) {
         return 10 + (int)(ch - 'A');
     }
     return -1;
+}
+
+static bool guest_is_power_of_two_u64(uint64_t value) {
+    return value != 0 && (value & (value - 1u)) == 0;
 }
 
 static bool guest_parse_strtol(const uint8_t *mem, uint64_t addr, int base_arg, int64_t *out_value, uint64_t *out_end) {
@@ -1588,6 +1642,8 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             return 0;
         case IMPORT_CB_RET_1:
             return 1;
+        case IMPORT_CB_RET_NEG1:
+            return UINT64_MAX;
         case IMPORT_CB_RET_X0:
             return state->x[0];
         case IMPORT_CB_RET_X1:
@@ -1979,6 +2035,37 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
                 memcpy(g_tiny_dbt_current_guest_mem + (size_t)endptr_addr, &end_addr, sizeof(end_addr));
             }
             return (uint64_t)value;
+        }
+        case IMPORT_CB_GUEST_STRTOUL_X0_X1_X2: {
+            int64_t value = 0;
+            uint64_t end_addr = state->x[0];
+            uint64_t endptr_addr = state->x[1];
+            int base = (int)(state->x[2] & 0xFFFFFFFFu);
+            if (!g_tiny_dbt_current_guest_mem ||
+                !guest_parse_strtol(g_tiny_dbt_current_guest_mem, state->x[0], base, &value, &end_addr)) {
+                return 0;
+            }
+            if (endptr_addr != 0 && guest_mem_range_valid(endptr_addr, sizeof(uint64_t))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)endptr_addr, &end_addr, sizeof(end_addr));
+            }
+            return (uint64_t)value;
+        }
+        case IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2: {
+            uint64_t outptr_addr = state->x[0];
+            uint64_t align = state->x[1];
+            uint64_t req = state->x[2];
+            uint64_t ptr = 0;
+            if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(outptr_addr, sizeof(uint64_t))) {
+                return 22u; /* EINVAL */
+            }
+            if (align < sizeof(uint64_t) || !guest_is_power_of_two_u64(align)) {
+                return 22u; /* EINVAL */
+            }
+            if (!guest_heap_alloc_aligned(state, align, req, &ptr)) {
+                return 12u; /* ENOMEM */
+            }
+            memcpy(g_tiny_dbt_current_guest_mem + (size_t)outptr_addr, &ptr, sizeof(ptr));
+            return 0;
         }
         case IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2:
             if (!g_tiny_dbt_current_guest_mem) {
