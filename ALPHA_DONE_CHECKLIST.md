@@ -6,6 +6,7 @@ Use this checklist to decide if the current branch is ready for an alpha cut.
 
 - [ ] `make tiny_dbt` succeeds cleanly.
 - [ ] `make run-fp-conversion-edge-check` passes.
+- [ ] `make run-elf-symbol-index-example` passes.
 - [ ] `make verify-kingshot-ci` passes.
 - [ ] `make run-kingshot-mode-regression-ci` passes.
 - [ ] `make run-nativebridge-skeleton-demo` passes.

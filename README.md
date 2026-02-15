@@ -55,10 +55,17 @@ Run from ELF symbol:
 ./tiny_dbt --elf-file /tmp/libmain.so --elf-symbol JNI_OnLoad
 ```
 
+Run from ELF dynamic symbol index:
+
+```sh
+./tiny_dbt --elf-file /tmp/libmain.so --elf-symbol-index 42 --elf-size 64
+```
+
 ## Useful CLI Options
 
 - `--code-file <path>`: load little-endian AArch64 instruction bytes.
 - `--elf-file <path> --elf-symbol <name>`: extract and run one symbol from an AArch64 ELF.
+- `--elf-file <path> --elf-symbol-index <n>`: extract and run one dynamic symbol by index.
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
 - `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_0`, `ret_1`, `ret_neg1`, `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_strtoul_x0_x1_x2`, `guest_posix_memalign_x0_x1_x2`, `guest_basename_x0`, `guest_strdup_x0`, `guest_strtof_x0_x1`, `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, `guest_tan_x0`, `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, `guest_tolower_x0`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`, `guest_vsnprintf_x0_x1_x2_x3`, `guest_vsscanf_x0_x1_x2`, `guest_vsnprintf_chk_x0_x1_x4_x5`, `guest_vfprintf_x0_x1_x2`, `guest_vasprintf_x0_x1_x2`).
@@ -80,6 +87,7 @@ Environment alternatives:
 - `SMOKE_FAIL_ON_ERROR` (for `scripts/run_kingshot_smoke_matrix.sh`)
 - `SMOKE_TIMEOUT_SEC` (per-run timeout in `run_kingshot_smoke_matrix.sh`)
 - `SMOKE_BLACKLIST_FILE` (skip problematic `lib` or `lib:symbol` rows in smoke matrix)
+- `SMOKE_ALLOW_SYMBOL_INDEX` (`0`/`1`, allow smoke scripts to fall back to `--elf-symbol-index`)
 - `KSHOT_PROFILE_MODE` (`relaxed`, `strict`, `compat`, `minimal`) for smoke/profile scripts
 
 ## Runtime Notes
@@ -88,6 +96,7 @@ Environment alternatives:
 - An unsupported instruction only fails execution if that path is reached.
 - Out-of-bounds guest memory access returns `x0 = UINT64_MAX` in this PoC.
 - ELF-loaded symbols rewrite out-of-range immediate `B/BL` targets to local return stubs.
+- ELF-loaded symbols can be selected by name (`--elf-symbol`) or dynamic index (`--elf-symbol-index`).
 - With `--elf-import-stub`, known PLT imports can get symbol-specific fixed return values.
 - With `--elf-import-callback`, known PLT imports can run host callback ops and return computed `X0`.
 - With `--elf-import-preset`, common import symbols are mapped automatically (without overriding explicit `--elf-import-stub`/`--elf-import-callback` entries).
@@ -222,6 +231,7 @@ make run-kingshot-import-profile-all-compat
 make run-kingshot-import-profile-all-minimal
 make run-kingshot-coverage-gate
 make run-kingshot-smoke
+make run-kingshot-smoke-index-example
 make run-kingshot-smoke-matrix
 make run-kingshot-smoke-matrix-ci
 make run-kingshot-mode-regression-ci
@@ -238,6 +248,7 @@ make run-nativebridge-skeleton-runtime-smoke
 make run-nativebridge-skeleton-jni-probe
 make run-unsupported-log-example
 make run-elf-symbol-example
+make run-elf-symbol-index-example
 ```
 
 ## Kingshot Import Profiles
@@ -279,6 +290,12 @@ Run a smoke execution against one extracted Kingshot ELF symbol with generated i
 
 ```sh
 make run-kingshot-smoke
+```
+
+Run smoke through explicit symbol index selection:
+
+```sh
+make run-kingshot-smoke-index-example
 ```
 
 Run smoke tests for the top `N` high-unmapped libs and selected symbols per lib

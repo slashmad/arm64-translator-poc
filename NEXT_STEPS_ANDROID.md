@@ -43,6 +43,7 @@
 - Integer minnesformer stöder nu även `LDURSW` (unscaled) och `LDRSH` med `W`-destination (post/pre, unscaled, unsigned imm).
 - Unsupported-opcodes är nu exekveringsdrivna: de ger runtime-exit först när pathen faktiskt körs och kan loggas via `--log-unsupported`/`TINY_DBT_LOG_UNSUPPORTED`.
 - ELF-symbolrunner finns via `--elf-file/--elf-symbol` (plus `--elf-size` för `size=0`-symboler) och patchar out-of-range `B/BL` till lokala returstubbar.
+- ELF-symbolrunnern stöder nu även `--elf-symbol-index <n>` för direktkörning av dynsym-index.
 - ELF-symbolrunnern stöder nu även importspecifika returstubbar via `--elf-import-stub <symbol=value>` baserat på `.rela.plt/.plt`.
 - ELF-symbolrunnern stöder nu även host-callbacks via `--elf-import-callback <symbol=op>` (t.ex. `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`) via interna callback-markörer.
 - `guest_snprintf_x0_x1_x2`/`guest_sscanf_x0_x1_x2` läser nu variadiska argument både från register och guest-stack (`SP`) och täcker nu `%f/%e/%g`, `%n` och scansets (`%[...]`) i PoC-nivå.
@@ -54,6 +55,7 @@
 - Kingshot smoke-runner finns nu via `make run-kingshot-smoke` (autoval av symbol + import trace + unsupported-logg).
 - Kingshot smoke-matrix finns nu via `make run-kingshot-smoke-matrix` (batch mot toppbibliotek med loggar + sammanfattning).
 - Smoke-matrixen har nu timeout + blacklist-stöd (`SMOKE_TIMEOUT_SEC`, `SMOKE_BLACKLIST_FILE`) och loggar `timeout` som tydlig exit-reason.
+- Smoke-scripten har nu säkrare symbolval (namnfilter) och valfri index-fallback via `SMOKE_ALLOW_SYMBOL_INDEX=1`.
 - En default blacklist finns nu i `profiles/kingshot_smoke_blacklist.txt` för kända non-returning symboler (`_start` i crashlytics-trampoline).
 - Smoke-matrixen skriver nu även metrics (`reports/kingshot_smoke_matrix_metrics.txt`) och auto-förslag för blacklist (`reports/kingshot_smoke_blacklist_suggestions.txt`).
 - Profilering stöder nu även `minimal`-läge för mer konservativ importmappning per bibliotek.

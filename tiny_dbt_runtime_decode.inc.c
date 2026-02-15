@@ -84,10 +84,6 @@ static size_t collect_block_starts(const uint32_t *insns, size_t n_insn, bool *i
         uint32_t insn = insns[pc];
         int target = branch_target_pc(insn, pc);
         if (target >= 0) {
-            if (target > (int)n_insn) {
-                fprintf(stderr, "branch target out of range at pc=%zu\n", pc);
-                exit(1);
-            }
             if (target < (int)n_insn) {
                 is_block_start[target] = true;
             }

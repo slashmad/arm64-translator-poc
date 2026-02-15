@@ -147,6 +147,8 @@ typedef struct {
     const char *code_file;
     const char *elf_file;
     const char *elf_symbol;
+    size_t elf_symbol_index;
+    bool has_elf_symbol_index;
     size_t elf_size_override;
     bool has_elf_size_override;
     ElfImportStubSpec *elf_import_stubs;
@@ -2166,7 +2168,8 @@ static bool elf_vaddr_to_offset(const Elf64_Phdr *phdrs, size_t n_phdr, uint64_t
     return false;
 }
 
-static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool has_size_override, size_t size_override,
+static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool has_symbol_index, size_t symbol_index,
+                                 bool has_size_override, size_t size_override,
                                  const ElfImportStubSpec *import_specs, size_t n_import_specs,
                                  const ElfImportCallbackSpec *callback_specs, size_t n_callback_specs,
                                  const char *import_trace_path, uint8_t **out_code, size_t *out_size) {
@@ -2177,7 +2180,7 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
     ElfPltImport *plt_imports = NULL;
     size_t n_plt_imports = 0;
 
-    if (!elf_path || !symbol || !out_code || !out_size) {
+    if (!elf_path || (!symbol && !has_symbol_index) || !out_code || !out_size) {
         return false;
     }
     *out_code = NULL;
@@ -2223,7 +2226,7 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
      * Pass 1: section-backed symbol lookup (works when section headers exist).
      * This is useful for unstripped objects with SYMTAB.
      */
-    if (eh->e_shnum > 0 && eh->e_shentsize == sizeof(Elf64_Shdr) &&
+    if (!has_symbol_index && eh->e_shnum > 0 && eh->e_shentsize == sizeof(Elf64_Shdr) &&
         range_within((size_t)eh->e_shoff, (size_t)eh->e_shnum * sizeof(Elf64_Shdr), file_size)) {
         shdrs = (const Elf64_Shdr *)(file + eh->e_shoff);
         if (!collect_elf_plt_imports_sections(file, file_size, eh, shdrs, &plt_imports, &n_plt_imports)) {
@@ -2387,9 +2390,17 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
             }
 
             if (symtab_avail >= syment && strtab_avail > 0) {
-                n_sym = symtab_avail / (size_t)syment;
+                size_t max_sym = symtab_avail / (size_t)syment;
+                n_sym = max_sym;
 
-                if (hash_va != 0) {
+                if (has_symbol_index) {
+                    if (symbol_index >= max_sym) {
+                        fprintf(stderr, "symbol index %zu out of range for %s (max=%zu)\n", symbol_index, elf_path,
+                                max_sym ? (max_sym - 1u) : 0u);
+                        goto out;
+                    }
+                    n_sym = symbol_index + 1u;
+                } else if (hash_va != 0) {
                     size_t hash_off = 0;
                     size_t hash_avail = 0;
                     if (elf_vaddr_to_offset(phdrs, n_phdr, hash_va, &hash_off, &hash_avail) &&
@@ -2400,7 +2411,7 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
                             n_sym = nchain;
                         }
                     }
-                } else if (gnu_hash_va != 0) {
+                } else if (!has_symbol_index && gnu_hash_va != 0) {
                     size_t ghash_off = 0;
                     size_t ghash_avail = 0;
                     if (elf_vaddr_to_offset(phdrs, n_phdr, gnu_hash_va, &ghash_off, &ghash_avail) &&
@@ -2420,8 +2431,8 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
                             }
                             if (max_bucket > symoffset && (size_t)max_bucket < n_sym) {
                                 n_sym = (size_t)max_bucket + 16384u;
-                                if (n_sym > symtab_avail / (size_t)syment) {
-                                    n_sym = symtab_avail / (size_t)syment;
+                                if (n_sym > max_sym) {
+                                    n_sym = max_sym;
                                 }
                             }
                         }
@@ -2436,12 +2447,18 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
                     if (sym_type != STT_FUNC && sym_type != STT_NOTYPE) {
                         continue;
                     }
-                    if (sym->st_name >= strtab_avail) {
-                        continue;
-                    }
-                    const char *name = strs + sym->st_name;
-                    if (strcmp(name, symbol) != 0) {
-                        continue;
+                    if (has_symbol_index) {
+                        if (si != symbol_index) {
+                            continue;
+                        }
+                    } else {
+                        if (sym->st_name >= strtab_avail) {
+                            continue;
+                        }
+                        const char *name = strs + sym->st_name;
+                        if (strcmp(name, symbol) != 0) {
+                            continue;
+                        }
                     }
                     if (sym->st_value == 0) {
                         continue;
@@ -2484,7 +2501,13 @@ static bool load_elf_symbol_code(const char *elf_path, const char *symbol, bool 
     }
 
     if (found_zero_size && !has_size_override) {
-        fprintf(stderr, "symbol '%s' in %s has size 0; pass --elf-size to override\n", symbol, elf_path);
+        if (has_symbol_index) {
+            fprintf(stderr, "symbol index %zu in %s has size 0; pass --elf-size to override\n", symbol_index, elf_path);
+        } else {
+            fprintf(stderr, "symbol '%s' in %s has size 0; pass --elf-size to override\n", symbol, elf_path);
+        }
+    } else if (has_symbol_index) {
+        fprintf(stderr, "failed to locate runnable symbol index %zu in %s\n", symbol_index, elf_path);
     } else {
         fprintf(stderr, "failed to locate runnable symbol '%s' in %s\n", symbol, elf_path);
     }
@@ -2726,11 +2749,13 @@ static void print_usage(FILE *out, const char *prog) {
             "usage: %s [options] <A64 opcode hex> [more...]\n"
             "   or: %s [options] --code-file <aarch64_le_code.bin>\n"
             "   or: %s [options] --elf-file <lib.so> --elf-symbol <name> [--elf-size <bytes>]\n"
+            "   or: %s [options] --elf-file <lib.so> --elf-symbol-index <n> [--elf-size <bytes>]\n"
             "options:\n"
             "  -h, --help                      show help\n"
             "  --code-file <path>              load raw AArch64 little-endian instruction bytes\n"
             "  --elf-file <path>               load code bytes from an AArch64 ELF image\n"
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
+            "  --elf-symbol-index <n>          dynamic symbol index to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
             "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_neg1_eacces, ret_neg1_enoent, ret_neg1_eperm, ret_neg1_etimedout, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_handle_x0, guest_open_x0_x1_x2, guest_openat_x0_x1_x2_x3, guest_read_x0_x1_x2, guest_write_x0_x1_x2, guest_close_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_exp_x0, guest_log_x0, guest_log10_x0, guest_floor_x0, guest_ceil_x0, guest_trunc_x0, guest_fmod_x0_x1, guest_sin_x0, guest_sinh_x0, guest_tanh_x0, guest_sinf_x0, guest_sincosf_x0_x1_x2, guest_exp2f_x0, guest_log2f_x0, guest_log10f_x0, guest_lround_x0, guest_acosf_x0, guest_asinf_x0, guest_atan2f_x0_x1, guest_expf_x0, guest_logf_x0, guest_fmodf_x0_x1, guest_gmtime_x0, guest_ctime_x0, guest_tzset_0, guest_daylight_ptr, guest_timezone_ptr, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
@@ -2753,6 +2778,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  %s D28000E0 91008C00 D65F03C0\n"
             "  %s --code-file /tmp/prog.bin\n"
             "  %s --elf-file /tmp/libfoo.so --elf-symbol tiny_func\n"
+            "  %s --elf-file /tmp/libfoo.so --elf-symbol-index 42 --elf-size 64\n"
             "  %s --pc-bytes 4 --code-file /tmp/prog.bin\n"
             "  %s --set-reg x0=1337 D65F03C0\n"
             "  %s --trace-state D28000E0 91008C00 D65F03C0\n"
@@ -2764,7 +2790,8 @@ static void print_usage(FILE *out, const char *prog) {
             "  %s --elf-file /tmp/libfoo.so --elf-symbol JNI_OnLoad --elf-import-callback malloc=ret_x0\n"
             "  %s --elf-file /tmp/libfoo.so --elf-symbol JNI_OnLoad --elf-import-trace /tmp/import_trace.log\n"
             "  %s --invalidate-pc-indexes=3 D2800181 D61F0020 D2800000 D2800540 91000400 D65F03C0\n",
-            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog);
+            prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog, prog,
+            prog, prog);
 }
 
 static bool parse_cli_options(int argc, char **argv, CliOptions *opts) {
@@ -2837,6 +2864,32 @@ static bool parse_cli_options(int argc, char **argv, CliOptions *opts) {
                 return false;
             }
             opts->elf_symbol = argv[++i];
+            continue;
+        }
+        if (strncmp(arg, "--elf-symbol-index=", 19) == 0) {
+            uint64_t value_u64 = 0;
+            const char *value = arg + 19;
+            if (!parse_u64_arg(value, &value_u64) || value_u64 > SIZE_MAX) {
+                fprintf(stderr, "invalid value for --elf-symbol-index: %s\n", value);
+                return false;
+            }
+            opts->elf_symbol_index = (size_t)value_u64;
+            opts->has_elf_symbol_index = true;
+            continue;
+        }
+        if (strcmp(arg, "--elf-symbol-index") == 0) {
+            uint64_t value_u64 = 0;
+            if (i + 1 >= argc) {
+                fprintf(stderr, "missing value for --elf-symbol-index\n");
+                return false;
+            }
+            const char *value = argv[++i];
+            if (!parse_u64_arg(value, &value_u64) || value_u64 > SIZE_MAX) {
+                fprintf(stderr, "invalid value for --elf-symbol-index: %s\n", value);
+                return false;
+            }
+            opts->elf_symbol_index = (size_t)value_u64;
+            opts->has_elf_symbol_index = true;
             continue;
         }
         if (strncmp(arg, "--elf-size=", 11) == 0) {
@@ -3237,14 +3290,26 @@ int main(int argc, char **argv) {
         rc = 2;
         goto out;
     }
-    if (opts.elf_file && !opts.elf_symbol) {
-        fprintf(stderr, "--elf-file requires --elf-symbol\n");
+    if (opts.has_elf_symbol_index && !opts.elf_file) {
+        fprintf(stderr, "--elf-symbol-index requires --elf-file\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
+    if (opts.elf_symbol && opts.has_elf_symbol_index) {
+        fprintf(stderr, "--elf-symbol and --elf-symbol-index are mutually exclusive\n");
+        print_usage(stderr, argv[0]);
+        rc = 2;
+        goto out;
+    }
+    if (opts.elf_file && !opts.elf_symbol && !opts.has_elf_symbol_index) {
+        fprintf(stderr, "--elf-file requires --elf-symbol or --elf-symbol-index\n");
         print_usage(stderr, argv[0]);
         rc = 2;
         goto out;
     }
     if (opts.has_elf_size_override && !opts.elf_file) {
-        fprintf(stderr, "--elf-size requires --elf-file/--elf-symbol\n");
+        fprintf(stderr, "--elf-size requires --elf-file plus --elf-symbol or --elf-symbol-index\n");
         print_usage(stderr, argv[0]);
         rc = 2;
         goto out;
@@ -3293,9 +3358,10 @@ int main(int argc, char **argv) {
     if (opts.elf_file) {
         size_t code_size = 0;
         uint8_t *code = NULL;
-        if (!load_elf_symbol_code(opts.elf_file, opts.elf_symbol, opts.has_elf_size_override, opts.elf_size_override,
-                                  opts.elf_import_stubs, opts.n_elf_import_stubs, opts.elf_import_callbacks,
-                                  opts.n_elf_import_callbacks, opts.elf_import_trace_path, &code, &code_size)) {
+        if (!load_elf_symbol_code(opts.elf_file, opts.elf_symbol, opts.has_elf_symbol_index, opts.elf_symbol_index,
+                                  opts.has_elf_size_override, opts.elf_size_override, opts.elf_import_stubs,
+                                  opts.n_elf_import_stubs, opts.elf_import_callbacks, opts.n_elf_import_callbacks,
+                                  opts.elf_import_trace_path, &code, &code_size)) {
             goto out;
         }
         dbt = tiny_dbt_create_from_bytes(code, code_size);

@@ -914,6 +914,9 @@ static void x86_shift_imm(CodeBuf *cb, int reg, unsigned shift_kind, unsigned am
         case 2: /* ASR */
             emit1(cb, (uint8_t)(0xF8 | (reg & 7))); /* /7 */
             break;
+        case 3: /* ROR */
+            emit1(cb, (uint8_t)(0xC8 | (reg & 7))); /* /1 */
+            break;
         default:
             fprintf(stderr, "unsupported shift kind\n");
             exit(1);
@@ -936,6 +939,9 @@ static void x86_shift_imm32(CodeBuf *cb, int reg, unsigned shift_kind, unsigned 
             break;
         case 2: /* ASR */
             emit1(cb, (uint8_t)(0xF8 | (reg & 7))); /* /7 */
+            break;
+        case 3: /* ROR */
+            emit1(cb, (uint8_t)(0xC8 | (reg & 7))); /* /1 */
             break;
         default:
             fprintf(stderr, "unsupported shift kind\n");
@@ -1031,7 +1037,7 @@ static void x86_idiv_r32(CodeBuf *cb, int reg) {
 
 static int materialize_shifted_rm(CodeBuf *cb, int x86_rm, unsigned shift, unsigned imm6, size_t pc,
                                   const char *insn_name) {
-    if (shift > 2) {
+    if (shift > 3) {
         fprintf(stderr, "unsupported %s shift kind at pc=%zu\n", insn_name, pc);
         exit(1);
     }
@@ -1047,13 +1053,13 @@ static int materialize_shifted_rm(CodeBuf *cb, int x86_rm, unsigned shift, unsig
 
 static int materialize_shifted_rm32(CodeBuf *cb, int x86_rm, unsigned shift, unsigned imm6, size_t pc,
                                     const char *insn_name) {
-    if (shift > 2) {
+    if (shift > 3) {
         fprintf(stderr, "unsupported %s shift kind at pc=%zu\n", insn_name, pc);
         exit(1);
     }
     if (imm6 > 31u) {
-        fprintf(stderr, "unsupported %s shift amount for 32-bit form at pc=%zu\n", insn_name, pc);
-        exit(1);
+        /* Reserved encodings appear in some obfuscated blobs; keep PoC execution moving. */
+        imm6 &= 31u;
     }
     if (imm6 == 0) {
         return x86_rm;
@@ -1293,6 +1299,13 @@ static int materialize_guest_mem_reg_offset(CodeBuf *cb, OobPatchVec *oob_patche
 
 static int state_x_offset(unsigned a64_reg) {
     return (int)(offsetof(CPUState, x) + (a64_reg * sizeof(uint64_t)));
+}
+
+static int normalize_branch_target_pc_for_poc(int target_pc, size_t n_insn) {
+    if (target_pc < 0 || target_pc > (int)n_insn) {
+        return (int)n_insn;
+    }
+    return target_pc;
 }
 
 static int state_v_qword_offset(unsigned vreg, unsigned qword) {
@@ -8277,7 +8290,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
     /* B <label> */
     if ((insn & 0xFC000000u) == 0x14000000u) {
         int32_t imm26 = sign_extend32(insn & 0x03FFFFFFu, 26);
-        int target_pc = (int)pc + imm26;
+        int target_pc = normalize_branch_target_pc_for_poc((int)pc + imm26, n_insn);
         size_t imm_off = x86_jmp_rel32(cb);
         pv_push(patches, imm_off, target_pc);
         return;
@@ -8286,7 +8299,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
     /* BL <label> */
     if ((insn & 0xFC000000u) == 0x94000000u) {
         int32_t imm26 = sign_extend32(insn & 0x03FFFFFFu, 26);
-        int target_pc = (int)pc + imm26;
+        int target_pc = normalize_branch_target_pc_for_poc((int)pc + imm26, n_insn);
         emit_preserve_guest_flags_begin(cb);
 
         /* Push current LR (x30) onto a tiny software return stack. */
@@ -8367,7 +8380,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
     /* B.cond <label> */
     if ((insn & 0xFF000010u) == 0x54000000u) {
         int32_t imm19 = sign_extend32((insn >> 5) & 0x7FFFFu, 19);
-        int target_pc = (int)pc + imm19;
+        int target_pc = normalize_branch_target_pc_for_poc((int)pc + imm19, n_insn);
         unsigned cond = insn & 0xFu;
         int cc = arm_cond_to_x86_cc(cond);
 
@@ -8394,7 +8407,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         unsigned op = (insn >> 24) & 1u; /* 0=CBZ, 1=CBNZ */
         unsigned rt = insn & 0x1Fu;
         int32_t imm19 = sign_extend32((insn >> 5) & 0x7FFFFu, 19);
-        int target_pc = (int)pc + imm19;
+        int target_pc = normalize_branch_target_pc_for_poc((int)pc + imm19, n_insn);
         int x86_rt;
 
         x86_rt = materialize_guest_xreg_or_zr_read(cb, rt, 10, pc, "CBZ/CBNZ");
@@ -8428,7 +8441,7 @@ static void translate_one(CodeBuf *cb, PatchVec *patches, OobPatchVec *oob_patch
         unsigned bit_pos = (b5 << 5) | b40;
         unsigned rt = insn & 0x1Fu;
         int32_t imm14 = sign_extend32((insn >> 5) & 0x3FFFu, 14);
-        int target_pc = (int)pc + imm14;
+        int target_pc = normalize_branch_target_pc_for_poc((int)pc + imm14, n_insn);
         int x86_rt;
 
         x86_rt = materialize_guest_xreg_or_zr_read(cb, rt, 10, pc, "TBZ/TBNZ");

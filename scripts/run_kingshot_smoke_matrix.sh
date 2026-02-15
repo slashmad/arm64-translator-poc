@@ -16,6 +16,7 @@ SMOKE_MAX_RETRIES=${SMOKE_MAX_RETRIES:-}
 SMOKE_FAIL_ON_ERROR=${SMOKE_FAIL_ON_ERROR:-0}
 SMOKE_TIMEOUT_SEC=${SMOKE_TIMEOUT_SEC:-25}
 SMOKE_BLACKLIST_FILE=${SMOKE_BLACKLIST_FILE:-$ROOT_DIR/profiles/kingshot_smoke_blacklist.txt}
+SMOKE_ALLOW_SYMBOL_INDEX=${SMOKE_ALLOW_SYMBOL_INDEX:-0}
 PROFILE_MODE=${KSHOT_PROFILE_MODE:-relaxed}
 
 if [ ! -x "$ROOT_DIR/tiny_dbt" ]; then
@@ -85,6 +86,14 @@ case "$SMOKE_FAIL_ON_ERROR" in
         exit 1
         ;;
 esac
+case "$SMOKE_ALLOW_SYMBOL_INDEX" in
+    0|1)
+        ;;
+    *)
+        echo "SMOKE_ALLOW_SYMBOL_INDEX must be 0 or 1 when set" >&2
+        exit 1
+        ;;
+esac
 
 SMOKE_TIMEOUT_BIN=
 if [ "$SMOKE_TIMEOUT_SEC" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
@@ -103,8 +112,9 @@ TMP_OUT=$(mktemp /tmp/kingshot_smoke_matrix_out.XXXXXX.txt)
 TMP_LIB=$(mktemp /tmp/kingshot_smoke_matrix_lib.XXXXXX.so)
 TMP_SYMS_ALL=$(mktemp /tmp/kingshot_smoke_matrix_syms_all.XXXXXX.txt)
 TMP_SYMS_PICK=$(mktemp /tmp/kingshot_smoke_matrix_syms_pick.XXXXXX.txt)
+TMP_SYMS_INDEX=$(mktemp /tmp/kingshot_smoke_matrix_syms_index.XXXXXX.txt)
 TMP_BLACKLIST=$(mktemp /tmp/kingshot_smoke_matrix_blacklist.XXXXXX.txt)
-trap 'rm -f "$TMP_LIBS" "$TMP_OUT" "$TMP_LIB" "$TMP_SYMS_ALL" "$TMP_SYMS_PICK" "$TMP_BLACKLIST"' EXIT INT TERM
+trap 'rm -f "$TMP_LIBS" "$TMP_OUT" "$TMP_LIB" "$TMP_SYMS_ALL" "$TMP_SYMS_PICK" "$TMP_SYMS_INDEX" "$TMP_BLACKLIST"' EXIT INT TERM
 
 : > "$TMP_BLACKLIST"
 if [ -f "$SMOKE_BLACKLIST_FILE" ]; then
@@ -162,23 +172,42 @@ extract_symbols() {
         | awk '$4 == "FUNC" && $7 != "UND" && $3 != "0" {
             name = $8
             sub(/@.*/, "", name)
-            if (name != "") {
+            if (name != "" && name ~ /^[A-Za-z0-9_.$@]+$/) {
                 print name
             }
         }' \
         | sort -u > "$TMP_SYMS_ALL"
-    if [ ! -s "$TMP_SYMS_ALL" ]; then
+
+    : > "$TMP_SYMS_PICK"
+    if [ -s "$TMP_SYMS_ALL" ]; then
+        if grep -qx "JNI_OnLoad" "$TMP_SYMS_ALL"; then
+            echo "JNI_OnLoad" >> "$TMP_SYMS_PICK"
+        fi
+        awk '$0 != "JNI_OnLoad"' "$TMP_SYMS_ALL" >> "$TMP_SYMS_PICK"
+        head -n "$syms_per_lib" "$TMP_SYMS_PICK" > "${TMP_SYMS_PICK}.head"
+        mv "${TMP_SYMS_PICK}.head" "$TMP_SYMS_PICK"
+        [ -s "$TMP_SYMS_PICK" ] && return 0
+    fi
+
+    if [ "$SMOKE_ALLOW_SYMBOL_INDEX" != "1" ]; then
         return 1
     fi
 
-    : > "$TMP_SYMS_PICK"
-    if grep -qx "JNI_OnLoad" "$TMP_SYMS_ALL"; then
-        echo "JNI_OnLoad" >> "$TMP_SYMS_PICK"
+    readelf --wide -Ws "$TMP_LIB" \
+        | awk '$4 == "FUNC" && $7 != "UND" && $3 != "0" {
+            idx = $1
+            sub(/:$/, "", idx)
+            if (idx ~ /^[0-9]+$/) {
+                print "index:" idx
+            }
+        }' \
+        | head -n "$syms_per_lib" > "$TMP_SYMS_INDEX"
+
+    if [ ! -s "$TMP_SYMS_INDEX" ]; then
+        return 1
     fi
-    awk '$0 != "JNI_OnLoad"' "$TMP_SYMS_ALL" >> "$TMP_SYMS_PICK"
-    head -n "$syms_per_lib" "$TMP_SYMS_PICK" > "${TMP_SYMS_PICK}.head"
-    mv "${TMP_SYMS_PICK}.head" "$TMP_SYMS_PICK"
-    [ -s "$TMP_SYMS_PICK" ]
+    cp "$TMP_SYMS_INDEX" "$TMP_SYMS_PICK"
+    return 0
 }
 
 is_blacklisted() {
@@ -207,7 +236,7 @@ while IFS= read -r LIB_ENTRY; do
     fi
     if ! extract_symbols "$LIB_ENTRY" "$SYMS_PER_LIB"; then
         printf 'skip %s - 0 1 - - - %s\n' "$LIB_ENTRY" "$REPORT_DIR/kingshot_smoke_${LIB_NAME}_extract.log" >> "$SUMMARY_FILE"
-        fail_count=$((fail_count + 1))
+        skip_count=$((skip_count + 1))
         continue
     fi
 
