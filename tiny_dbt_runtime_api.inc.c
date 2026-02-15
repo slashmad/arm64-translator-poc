@@ -409,7 +409,9 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     }
 
     uint8_t *prev_guest_mem = g_tiny_dbt_current_guest_mem;
+    uint64_t prev_errno_slot_addr = g_tiny_dbt_errno_slot_addr;
     g_tiny_dbt_current_guest_mem = dbt->guest_mem;
+    g_tiny_dbt_errno_slot_addr = 0;
 
     typedef uint64_t (*JitFn)(CPUState *);
     JitFn fn = (JitFn)dbt->mem;
@@ -449,6 +451,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
             }
         }
         g_tiny_dbt_current_guest_mem = prev_guest_mem;
+        g_tiny_dbt_errno_slot_addr = prev_errno_slot_addr;
         return false;
     }
     state->nzcv = rflags_to_nzcv(state->rflags);
@@ -461,6 +464,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
         *out_x0 = state->x[0];
     }
     g_tiny_dbt_current_guest_mem = prev_guest_mem;
+    g_tiny_dbt_errno_slot_addr = prev_errno_slot_addr;
     return true;
 }
 

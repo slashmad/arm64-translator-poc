@@ -39,6 +39,7 @@ KSHOT_PROFILE_MODE ?= relaxed
 .PHONY: run-kingshot-import-profile-compat run-kingshot-import-profile-all-compat verify-kingshot-ci
 .PHONY: run-import-callback-pow-example run-import-callback-sqrt-example run-import-callback-cos-example run-import-callback-tan-example
 .PHONY: run-import-callback-islower-example run-import-callback-isspace-example run-import-callback-isxdigit-example run-import-callback-isupper-example run-import-callback-toupper-example run-import-callback-tolower-example
+.PHONY: run-import-callback-retneg1-enosys-example run-import-callback-retneg1-eagain-example run-import-callback-retneg1-eintr-example run-import-callback-errno-slot-example
 
 all: tiny_dbt
 
@@ -803,6 +804,18 @@ run-import-callback-strtol-invalid-base-example: tiny_dbt
 run-import-callback-retneg1-example: tiny_dbt
 	./tiny_dbt D454A060 D65F03C0
 
+run-import-callback-retneg1-enosys-example: tiny_dbt
+	./tiny_dbt D454AF80 D65F03C0
+
+run-import-callback-retneg1-eagain-example: tiny_dbt
+	./tiny_dbt D454AFA0 D65F03C0
+
+run-import-callback-retneg1-eintr-example: tiny_dbt
+	./tiny_dbt D454AFC0 D65F03C0
+
+run-import-callback-errno-slot-example: tiny_dbt
+	./tiny_dbt D454AFE0 AA0003E1 D454AF80 F9400020 D65F03C0
+
 run-import-callback-strtoul-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x100 --set-reg x2=10 --mem-write 0x20:3432393439363732393561626300 --mem-read 0x100:8 D454ADA0 D65F03C0
 
@@ -952,6 +965,10 @@ verify-kingshot: tiny_dbt
 	$(MAKE) run-import-callback-vfprintf-example
 	$(MAKE) run-import-callback-vasprintf-example
 	$(MAKE) run-import-callback-retneg1-example
+	$(MAKE) run-import-callback-retneg1-enosys-example
+	$(MAKE) run-import-callback-retneg1-eagain-example
+	$(MAKE) run-import-callback-retneg1-eintr-example
+	$(MAKE) run-import-callback-errno-slot-example
 	$(MAKE) run-import-callback-basename-example
 	$(MAKE) run-import-callback-strdup-example
 	$(MAKE) run-import-callback-strtof-example

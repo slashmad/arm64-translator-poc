@@ -92,7 +92,11 @@ enum {
     IMPORT_CB_GUEST_ISXDIGIT_X0 = 0x78,
     IMPORT_CB_GUEST_ISUPPER_X0 = 0x79,
     IMPORT_CB_GUEST_TOUPPER_X0 = 0x7A,
-    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B
+    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B,
+    IMPORT_CB_RET_NEG1_ENOSYS = 0x7C,
+    IMPORT_CB_RET_NEG1_EAGAIN = 0x7D,
+    IMPORT_CB_RET_NEG1_EINTR = 0x7E,
+    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F
 };
 
 typedef struct {
@@ -217,6 +221,18 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_RET_NEG1;
         return true;
     }
+    if (strcmp(kind, "ret_neg1_enosys") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_ENOSYS;
+        return true;
+    }
+    if (strcmp(kind, "ret_neg1_eagain") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_EAGAIN;
+        return true;
+    }
+    if (strcmp(kind, "ret_neg1_eintr") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_EINTR;
+        return true;
+    }
     if (strcmp(kind, "sub_x0_x1") == 0) {
         *out_callback_id = IMPORT_CB_SUB_X0_X1;
         return true;
@@ -227,6 +243,10 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
     }
     if (strcmp(kind, "nonnull_x0") == 0) {
         *out_callback_id = IMPORT_CB_NONNULL_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_errno_ptr") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ERRNO_PTR;
         return true;
     }
     if (strcmp(kind, "guest_alloc_x0") == 0) {
@@ -420,6 +440,12 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "ret_1";
         case IMPORT_CB_RET_NEG1:
             return "ret_neg1";
+        case IMPORT_CB_RET_NEG1_ENOSYS:
+            return "ret_neg1_enosys";
+        case IMPORT_CB_RET_NEG1_EAGAIN:
+            return "ret_neg1_eagain";
+        case IMPORT_CB_RET_NEG1_EINTR:
+            return "ret_neg1_eintr";
         case IMPORT_CB_RET_X0:
             return "ret_x0";
         case IMPORT_CB_RET_X1:
@@ -444,6 +470,8 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "ret_sp";
         case IMPORT_CB_NONNULL_X0:
             return "nonnull_x0";
+        case IMPORT_CB_GUEST_ERRNO_PTR:
+            return "guest_errno_ptr";
         case IMPORT_CB_GUEST_ALLOC_X0:
             return "guest_alloc_x0";
         case IMPORT_CB_GUEST_FREE_X0:
@@ -733,7 +761,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"__android_log_assert", IMPORT_CB_RET_X0},
         {"__android_log_write", IMPORT_CB_RET_X0},
         {"__android_log_vprint", IMPORT_CB_RET_X0},
-        {"__errno", IMPORT_CB_RET_SP},
+        {"__errno", IMPORT_CB_GUEST_ERRNO_PTR},
         {"__sF", IMPORT_CB_RET_SP},
         {"abort", IMPORT_CB_RET_0},
         {"dl_iterate_phdr", IMPORT_CB_RET_0},
@@ -755,20 +783,20 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"pthread_rwlock_unlock", IMPORT_CB_RET_0},
         {"pthread_self", IMPORT_CB_RET_SP},
         {"sigemptyset", IMPORT_CB_RET_0},
-        {"socket", IMPORT_CB_RET_NEG1},
-        {"connect", IMPORT_CB_RET_NEG1},
-        {"bind", IMPORT_CB_RET_NEG1},
-        {"sendto", IMPORT_CB_RET_NEG1},
-        {"getsockname", IMPORT_CB_RET_NEG1},
-        {"poll", IMPORT_CB_RET_NEG1},
-        {"select", IMPORT_CB_RET_NEG1},
+        {"socket", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"connect", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"bind", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"sendto", IMPORT_CB_RET_NEG1_EAGAIN},
+        {"getsockname", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"poll", IMPORT_CB_RET_NEG1_EAGAIN},
+        {"select", IMPORT_CB_RET_NEG1_EAGAIN},
         {"mkdir", IMPORT_CB_RET_0},
         {"prctl", IMPORT_CB_RET_0},
         {"uname", IMPORT_CB_RET_0},
-        {"syscall", IMPORT_CB_RET_NEG1},
-        {"__open_2", IMPORT_CB_RET_NEG1},
-        {"_exit", IMPORT_CB_RET_NEG1},
-        {"exit", IMPORT_CB_RET_NEG1},
+        {"syscall", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"__open_2", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"_exit", IMPORT_CB_RET_NEG1_EINTR},
+        {"exit", IMPORT_CB_RET_NEG1_EINTR},
         {"dladdr", IMPORT_CB_RET_0},
         {"android_set_abort_message", IMPORT_CB_RET_0},
         {"getauxval", IMPORT_CB_RET_1},
@@ -781,27 +809,27 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         const char *name;
         uint8_t callback_id;
     } compat_extra[] = {
-        {"dup2", IMPORT_CB_RET_NEG1},
-        {"execl", IMPORT_CB_RET_NEG1},
-        {"execve", IMPORT_CB_RET_NEG1},
+        {"dup2", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"execl", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"execve", IMPORT_CB_RET_NEG1_ENOSYS},
         {"fileno", IMPORT_CB_RET_1},
-        {"fork", IMPORT_CB_RET_NEG1},
-        {"getaddrinfo", IMPORT_CB_RET_NEG1},
+        {"fork", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"getaddrinfo", IMPORT_CB_RET_NEG1_ENOSYS},
         {"gethostbyname", IMPORT_CB_RET_0},
         {"getppid", IMPORT_CB_RET_1},
         {"inet_ntoa", IMPORT_CB_RET_0},
-        {"ioctl", IMPORT_CB_RET_NEG1},
+        {"ioctl", IMPORT_CB_RET_NEG1_ENOSYS},
         {"lseek64", IMPORT_CB_RET_1},
         {"localtime_r", IMPORT_CB_RET_X1},
-        {"lstat", IMPORT_CB_RET_NEG1},
+        {"lstat", IMPORT_CB_RET_NEG1_ENOSYS},
         {"popen", IMPORT_CB_RET_SP},
         {"pthread_cond_destroy", IMPORT_CB_RET_0},
         {"pthread_cond_signal", IMPORT_CB_RET_0},
         {"pthread_cond_timedwait", IMPORT_CB_RET_0},
         {"rand", IMPORT_CB_RET_1},
-        {"rename", IMPORT_CB_RET_NEG1},
-        {"sigaltstack", IMPORT_CB_RET_NEG1},
-        {"sigprocmask", IMPORT_CB_RET_NEG1},
+        {"rename", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"sigaltstack", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"sigprocmask", IMPORT_CB_RET_NEG1_ENOSYS},
         {"sigsetjmp", IMPORT_CB_RET_0},
         {"srand", IMPORT_CB_RET_0},
         {"strcat", IMPORT_CB_RET_X0},
@@ -812,7 +840,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"atoll", IMPORT_CB_GUEST_ATOI_X0},
         {"towlower", IMPORT_CB_GUEST_TOLOWER_X0},
         {"towupper", IMPORT_CB_GUEST_TOUPPER_X0},
-        {"unlink", IMPORT_CB_RET_NEG1},
+        {"unlink", IMPORT_CB_RET_NEG1_ENOSYS},
         {"wcrtomb", IMPORT_CB_RET_1},
         {"wcslen", IMPORT_CB_RET_0},
         {"wmemcpy", IMPORT_CB_RET_X0},
@@ -865,7 +893,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"ftruncate", IMPORT_CB_RET_0},
         {"geteuid", IMPORT_CB_RET_1},
         {"getpagesize", IMPORT_CB_RET_1},
-        {"getpeername", IMPORT_CB_RET_NEG1},
+        {"getpeername", IMPORT_CB_RET_NEG1_ENOSYS},
         {"getpriority", IMPORT_CB_RET_1},
         {"glGetString", IMPORT_CB_RET_SP},
         {"inet_aton", IMPORT_CB_RET_1},
@@ -896,12 +924,12 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"pthread_mutexattr_settype", IMPORT_CB_RET_0},
         {"pthread_setname_np", IMPORT_CB_RET_0},
         {"pthread_sigmask", IMPORT_CB_RET_0},
-        {"ptrace", IMPORT_CB_RET_NEG1},
-        {"recv", IMPORT_CB_RET_1},
-        {"recvfrom", IMPORT_CB_RET_1},
+        {"ptrace", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"recv", IMPORT_CB_RET_NEG1_EAGAIN},
+        {"recvfrom", IMPORT_CB_RET_NEG1_EAGAIN},
         {"rmdir", IMPORT_CB_RET_0},
         {"sched_yield", IMPORT_CB_RET_0},
-        {"send", IMPORT_CB_RET_1},
+        {"send", IMPORT_CB_RET_NEG1_EAGAIN},
         {"setlocale", IMPORT_CB_RET_SP},
         {"setvbuf", IMPORT_CB_RET_0},
         {"shutdown", IMPORT_CB_RET_0},
@@ -912,6 +940,49 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"wctob", IMPORT_CB_RET_1},
         {"wmemchr", IMPORT_CB_RET_0},
         {"wmemcmp", IMPORT_CB_RET_0},
+        {"__errno_location", IMPORT_CB_GUEST_ERRNO_PTR},
+        {"ZSTD_trace_decompress_begin", IMPORT_CB_RET_0},
+        {"ZSTD_trace_decompress_end", IMPORT_CB_RET_0},
+        {"zError", IMPORT_CB_RET_0},
+        {"getopt", IMPORT_CB_RET_NEG1},
+        {"getopt_long", IMPORT_CB_RET_NEG1},
+        {"environ", IMPORT_CB_RET_SP},
+        {"gai_strerror", IMPORT_CB_RET_SP},
+        {"hstrerror", IMPORT_CB_RET_SP},
+        {"getnameinfo", IMPORT_CB_RET_0},
+        {"wcstol", IMPORT_CB_RET_0},
+        {"wcstoll", IMPORT_CB_RET_0},
+        {"wcstoul", IMPORT_CB_RET_0},
+        {"wcstoull", IMPORT_CB_RET_0},
+        {"wcstod", IMPORT_CB_RET_0},
+        {"wcstof", IMPORT_CB_RET_0},
+        {"wcstold", IMPORT_CB_RET_0},
+        {"tzset", IMPORT_CB_RET_0},
+        {"tzname", IMPORT_CB_RET_SP},
+        {"timezone", IMPORT_CB_RET_0},
+        {"daylight", IMPORT_CB_RET_0},
+        {"strftime_l", IMPORT_CB_RET_1},
+        {"wcsftime", IMPORT_CB_RET_1},
+        {"slCreateEngine", IMPORT_CB_RET_0},
+        {"SL_IID_ANDROIDCONFIGURATION", IMPORT_CB_RET_SP},
+        {"SL_IID_ANDROIDSIMPLEBUFFERQUEUE", IMPORT_CB_RET_SP},
+        {"SL_IID_BUFFERQUEUE", IMPORT_CB_RET_SP},
+        {"SL_IID_ENGINE", IMPORT_CB_RET_SP},
+        {"SL_IID_PLAY", IMPORT_CB_RET_SP},
+        {"SL_IID_RECORD", IMPORT_CB_RET_SP},
+        {"SL_IID_VOLUME", IMPORT_CB_RET_SP},
+        {"_Znwm", IMPORT_CB_GUEST_ALLOC_X0},
+        {"_Znam", IMPORT_CB_GUEST_ALLOC_X0},
+        {"_ZdlPv", IMPORT_CB_GUEST_FREE_X0},
+        {"_Unwind_Resume", IMPORT_CB_RET_0},
+        {"__gxx_personality_v0", IMPORT_CB_RET_0},
+        {"__cxa_allocate_exception", IMPORT_CB_RET_0},
+        {"__cxa_begin_catch", IMPORT_CB_RET_0},
+        {"__cxa_end_catch", IMPORT_CB_RET_0},
+        {"__cxa_free_exception", IMPORT_CB_RET_0},
+        {"__cxa_thread_atexit_impl", IMPORT_CB_RET_0},
+        {"__cxa_throw", IMPORT_CB_RET_0},
+        {"__android_log_buf_write", IMPORT_CB_RET_X0},
         {"writev", IMPORT_CB_RET_1},
     };
 
@@ -2282,7 +2353,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic, android-compat)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"

@@ -106,6 +106,7 @@ Environment alternatives:
 - `guest_basename_x0`, `guest_strdup_x0`, and `guest_strtof_x0_x1` provide minimal path, duplicate-string, and float parse hooks.
 - `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, and `guest_tan_x0` provide scalar FP math hooks.
 - `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, and `guest_tolower_x0` provide ctype hooks.
+- `guest_errno_ptr` returns a guest-memory errno slot, while `ret_neg1_enosys`, `ret_neg1_eagain`, and `ret_neg1_eintr` return `-1` and set that errno slot.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
 - `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%f/%e/%g/%c/%s/%[` and `%n` with output pointers in `x2..x7` and then guest stack.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
@@ -289,12 +290,15 @@ Default `libmain` profile output:
 - `profiles/kingshot_libmain_import_stubs.txt`
 - `profiles/kingshot_libmain_import_args.txt`
 - `reports/kingshot_libmain_unmapped_imports.txt`
+- `reports/kingshot_libmain_rejected_import_symbols.txt`
 
 All-lib profile output also includes:
 
 - `reports/kingshot_all_import_profiles_summary.txt`
 - `reports/kingshot_all_unmapped_imports.txt`
 - `reports/kingshot_all_unmapped_top_symbols.txt`
+- `reports/kingshot_all_rejected_import_symbols.txt`
+- `reports/kingshot_all_rejected_top_symbols.txt`
 - `reports/kingshot_next_callbacks.txt`
 - `reports/kingshot_all_import_coverage.txt`
 - `reports/kingshot_smoke_matrix_summary.txt`

@@ -133,7 +133,11 @@ enum {
     IMPORT_CB_GUEST_ISXDIGIT_X0 = 0x78,
     IMPORT_CB_GUEST_ISUPPER_X0 = 0x79,
     IMPORT_CB_GUEST_TOUPPER_X0 = 0x7A,
-    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B
+    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B,
+    IMPORT_CB_RET_NEG1_ENOSYS = 0x7C,
+    IMPORT_CB_RET_NEG1_EAGAIN = 0x7D,
+    IMPORT_CB_RET_NEG1_EINTR = 0x7E,
+    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F
 };
 
 struct TinyDbt {
@@ -250,12 +254,16 @@ static bool guest_sscanf_store_float(uint8_t *mem, uint64_t addr, GuestFmtLength
 static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state);
 static double guest_fp_arg_f64(const CPUState *state, unsigned idx);
 static uint64_t guest_fp_ret_f64(CPUState *state, double value);
+static bool guest_errno_slot_ensure(CPUState *state, uint64_t *out_addr);
+static void guest_errno_write(CPUState *state, uint64_t err);
+static uint64_t guest_errno_ptr(CPUState *state);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
  * Thread-local keeps nested/parallel runtimes isolated.
  */
 static _Thread_local uint8_t *g_tiny_dbt_current_guest_mem = NULL;
+static _Thread_local uint64_t g_tiny_dbt_errno_slot_addr = 0;
 
 static void tiny_dbt_set_error(TinyDbt *dbt, const char *fmt, ...) {
     if (!dbt) {
@@ -1219,6 +1227,44 @@ static uint64_t guest_fp_ret_f64(CPUState *state, double value) {
     return bits;
 }
 
+static bool guest_errno_slot_ensure(CPUState *state, uint64_t *out_addr) {
+    uint64_t addr = 0;
+    uint64_t zero = 0;
+
+    if (!state || !out_addr || !g_tiny_dbt_current_guest_mem) {
+        return false;
+    }
+    if (g_tiny_dbt_errno_slot_addr != 0 &&
+        guest_mem_range_valid(g_tiny_dbt_errno_slot_addr, sizeof(uint64_t))) {
+        *out_addr = g_tiny_dbt_errno_slot_addr;
+        return true;
+    }
+    if (!guest_heap_alloc_aligned(state, sizeof(uint64_t), sizeof(uint64_t), &addr) ||
+        !guest_mem_range_valid(addr, sizeof(uint64_t))) {
+        return false;
+    }
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)addr, &zero, sizeof(zero));
+    g_tiny_dbt_errno_slot_addr = addr;
+    *out_addr = addr;
+    return true;
+}
+
+static void guest_errno_write(CPUState *state, uint64_t err) {
+    uint64_t addr = 0;
+    if (!guest_errno_slot_ensure(state, &addr)) {
+        return;
+    }
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)addr, &err, sizeof(err));
+}
+
+static uint64_t guest_errno_ptr(CPUState *state) {
+    uint64_t addr = 0;
+    if (!guest_errno_slot_ensure(state, &addr)) {
+        return state ? state->sp : 0;
+    }
+    return addr;
+}
+
 static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value) {
     switch (len) {
         case GUEST_FMT_LEN_HH: {
@@ -1692,6 +1738,15 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             return 1;
         case IMPORT_CB_RET_NEG1:
             return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_ENOSYS:
+            guest_errno_write(state, ENOSYS);
+            return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_EAGAIN:
+            guest_errno_write(state, EAGAIN);
+            return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_EINTR:
+            guest_errno_write(state, EINTR);
+            return UINT64_MAX;
         case IMPORT_CB_RET_X0:
             return state->x[0];
         case IMPORT_CB_RET_X1:
@@ -1716,6 +1771,8 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             return state->sp;
         case IMPORT_CB_NONNULL_X0:
             return state->x[0] != 0 ? 1u : 0u;
+        case IMPORT_CB_GUEST_ERRNO_PTR:
+            return guest_errno_ptr(state);
         case IMPORT_CB_GUEST_ALLOC_X0: {
             uint64_t ptr = 0;
             uint64_t size = 0;

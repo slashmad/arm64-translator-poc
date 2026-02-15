@@ -9,6 +9,8 @@ REPORT_DIR="$ROOT_DIR/reports"
 SUMMARY_FILE="$REPORT_DIR/kingshot_all_import_profiles_summary.txt"
 UNMAPPED_ALL_FILE="$REPORT_DIR/kingshot_all_unmapped_imports.txt"
 UNMAPPED_TOP_FILE="$REPORT_DIR/kingshot_all_unmapped_top_symbols.txt"
+REJECTED_ALL_FILE="$REPORT_DIR/kingshot_all_rejected_import_symbols.txt"
+REJECTED_TOP_FILE="$REPORT_DIR/kingshot_all_rejected_top_symbols.txt"
 COVERAGE_FILE="$REPORT_DIR/kingshot_all_import_coverage.txt"
 NEXT_CALLBACKS_FILE="$REPORT_DIR/kingshot_next_callbacks.txt"
 
@@ -59,15 +61,17 @@ fi
 
 : > "$SUMMARY_FILE"
 : > "$UNMAPPED_ALL_FILE"
+: > "$REJECTED_ALL_FILE"
 
 echo "# Kingshot all-lib import profile summary" >> "$SUMMARY_FILE"
 echo "# APK: $APK_PATH" >> "$SUMMARY_FILE"
 echo "# Mode: $PROFILE_MODE" >> "$SUMMARY_FILE"
-echo "# Columns: lib_entry mapped_count unmapped_count callbacks_file stubs_file unmapped_file" >> "$SUMMARY_FILE"
+echo "# Columns: lib_entry mapped_count unmapped_count rejected_count callbacks_file stubs_file unmapped_file rejected_file" >> "$SUMMARY_FILE"
 
 lib_count=0
 mapped_total=0
 unmapped_total=0
+rejected_total=0
 
 while IFS= read -r LIB_ENTRY; do
     [ -z "$LIB_ENTRY" ] && continue
@@ -80,22 +84,27 @@ while IFS= read -r LIB_ENTRY; do
     CALLBACK_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_callbacks.txt"
     STUB_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_stubs.txt"
     UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
+    REJECTED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_rejected_import_symbols.txt"
 
     cb_count=$(count_nonempty "$CALLBACK_FILE")
     stub_count=$(count_nonempty "$STUB_FILE")
     mapped_count=$((cb_count + stub_count))
     unmapped_count=$(count_unmapped "$UNMAPPED_FILE")
+    rejected_count=$(count_nonempty "$REJECTED_FILE")
 
     mapped_total=$((mapped_total + mapped_count))
     unmapped_total=$((unmapped_total + unmapped_count))
+    rejected_total=$((rejected_total + rejected_count))
 
-    printf '%s %s %s %s %s %s\n' \
+    printf '%s %s %s %s %s %s %s %s\n' \
         "$LIB_ENTRY" \
         "$mapped_count" \
         "$unmapped_count" \
+        "$rejected_count" \
         "$CALLBACK_FILE" \
         "$STUB_FILE" \
-        "$UNMAPPED_FILE" >> "$SUMMARY_FILE"
+        "$UNMAPPED_FILE" \
+        "$REJECTED_FILE" >> "$SUMMARY_FILE"
 
     if [ "$unmapped_count" -gt 0 ]; then
         while IFS= read -r sym; do
@@ -105,6 +114,12 @@ while IFS= read -r LIB_ENTRY; do
             esac
             printf '%s:%s\n' "$LIB_ENTRY" "$sym" >> "$UNMAPPED_ALL_FILE"
         done < "$UNMAPPED_FILE"
+    fi
+    if [ "$rejected_count" -gt 0 ]; then
+        while IFS= read -r sym; do
+            [ -z "$sym" ] && continue
+            printf '%s:%s\n' "$LIB_ENTRY" "$sym" >> "$REJECTED_ALL_FILE"
+        done < "$REJECTED_FILE"
     fi
 done < "$TMP_LIB_LIST"
 
@@ -118,6 +133,18 @@ if [ -s "$UNMAPPED_ALL_FILE" ]; then
 else
     echo "# all imports mapped" > "$UNMAPPED_ALL_FILE"
     echo "# all imports mapped" > "$UNMAPPED_TOP_FILE"
+fi
+
+if [ -s "$REJECTED_ALL_FILE" ]; then
+    sort -u -o "$REJECTED_ALL_FILE" "$REJECTED_ALL_FILE"
+    awk -F: '{print $2}' "$REJECTED_ALL_FILE" \
+        | sort \
+        | uniq -c \
+        | sort -nr \
+        | awk '{printf "%s %s\n", $1, $2}' > "$REJECTED_TOP_FILE"
+else
+    echo "# no rejected symbols" > "$REJECTED_ALL_FILE"
+    echo "# no rejected symbols" > "$REJECTED_TOP_FILE"
 fi
 
 awk 'NF >= 3 && $1 ~ /^lib\/arm64-v8a\/.*\.so$/ {print $1, $3}' "$SUMMARY_FILE" > "$TMP_WEIGHTS"
@@ -156,6 +183,7 @@ fi
     echo "libs=$lib_count"
     echo "mapped=$mapped_total"
     echo "unmapped=$unmapped_total"
+    echo "rejected=$rejected_total"
     echo "total=$total_count"
     echo "mode=$PROFILE_MODE"
     echo "coverage_percent=$coverage_pct"
@@ -166,8 +194,11 @@ echo "  libs:      $lib_count"
 echo "  mode:      $PROFILE_MODE"
 echo "  mapped:    $mapped_total"
 echo "  unmapped:  $unmapped_total"
+echo "  rejected:  $rejected_total"
 echo "  summary:   $SUMMARY_FILE"
 echo "  unmapped:  $UNMAPPED_ALL_FILE"
 echo "  top:       $UNMAPPED_TOP_FILE"
+echo "  rejected:  $REJECTED_ALL_FILE"
+echo "  rej-top:   $REJECTED_TOP_FILE"
 echo "  next:      $NEXT_CALLBACKS_FILE"
 echo "  coverage:  $COVERAGE_FILE (${coverage_pct}%)"

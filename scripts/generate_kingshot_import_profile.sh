@@ -13,6 +13,7 @@ CALLBACK_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_callbacks.txt"
 STUB_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_stubs.txt"
 ARGS_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_args.txt"
 UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
+REJECTED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_rejected_import_symbols.txt"
 
 case "$PROFILE_MODE" in
     relaxed|strict|compat)
@@ -57,8 +58,12 @@ map_callback() {
         strtol|strtoll|strtoll_l) echo guest_strtol_x0_x1_x2 ;;
         strtoul|strtoull|strtoull_l) echo guest_strtoul_x0_x1_x2 ;;
         strtod|strtold_l) echo guest_strtod_x0_x1 ;;
+        wcstol|wcstoll|wcstoul|wcstoull|wcstod|wcstof|wcstold) echo ret_0 ;;
         strtof) echo guest_strtof_x0_x1 ;;
         pow) echo guest_pow_x0_x1 ;;
+        sqrtf) echo guest_sqrt_x0 ;;
+        cosf) echo guest_cos_x0 ;;
+        tanf) echo guest_tan_x0 ;;
         sqrt) echo guest_sqrt_x0 ;;
         cos) echo guest_cos_x0 ;;
         tan) echo guest_tan_x0 ;;
@@ -78,37 +83,53 @@ map_callback() {
         posix_memalign) echo guest_posix_memalign_x0_x1_x2 ;;
         pthread_mutex_init|pthread_mutex_destroy|pthread_mutex_trylock|sigemptyset) echo ret_0 ;;
         pthread_mutexattr_init|pthread_mutexattr_destroy|pthread_mutexattr_settype) echo ret_0 ;;
-        bind|connect|getsockname|sendto|socket|poll|select) echo ret_neg1 ;;
+        bind|connect|getsockname|getpeername|socket) echo ret_neg1_enosys ;;
+        send|sendto|recv|recvfrom|poll|select) echo ret_neg1_eagain ;;
         mkdir|prctl|uname|rmdir) echo ret_0 ;;
-        dup2|fork|execve|execl|pipe|eventfd|accept) echo ret_neg1 ;;
+        dup2|fork|execve|execl|pipe|eventfd|accept|clone) echo ret_neg1_enosys ;;
         fileno|getppid|rand|clock) echo ret_1 ;;
         srand) echo ret_0 ;;
-        getaddrinfo|ioctl|lstat|rename|unlink|access|chmod|nanosleep|usleep|sleep|kill|sigaltstack|ptrace) echo ret_neg1 ;;
+        getaddrinfo|ioctl|lstat|rename|unlink|access|chmod|kill|sigaltstack|ptrace|epoll_create1|epoll_ctl|epoll_wait|inotify_add_watch|inotify_init|timer_create|timer_settime|utimes|statfs|system) echo ret_neg1_enosys ;;
+        nanosleep|usleep|sleep) echo ret_neg1_eintr ;;
         gethostbyname|inet_ntoa|inet_addr|inet_ntop|strerror|realpath) echo ret_0 ;;
+        gai_strerror|hstrerror) echo ret_sp ;;
         inet_aton|inet_pton) echo ret_1 ;;
+        getnameinfo) echo ret_0 ;;
+        getopt|getopt_long) echo ret_neg1 ;;
+        getcwd|gethostname|gethostbyaddr|if_indextoname|getline|tmpfile) echo ret_sp ;;
+        getuid) echo ret_1 ;;
         localtime_r) echo ret_x1 ;;
         pthread_cond_destroy|pthread_cond_signal|pthread_cond_timedwait|pthread_equal|pthread_setname_np) echo ret_0 ;;
         sigaddset|sigfillset|signal|sigsetjmp|siglongjmp|pthread_sigmask|sigprocmask|sched_yield) echo ret_0 ;;
         strerror_r|strftime|wcrtomb|mbrtowc|mbrlen|mbsnrtowcs|mbsrtowcs|mbtowc|btowc|wctob) echo ret_1 ;;
         __ctype_get_mb_cur_max) echo ret_1 ;;
-        wmemcpy|wmemmove|wmemset|strcat|strtok|strtok_r|strcoll|strcasecmp|strxfrm|wcscoll|wcsxfrm|wcsnrtombs) echo ret_x0 ;;
+        wmemcpy|wmemmove|wmemset|strcat|strtok|strtok_r|strcoll|strcasecmp|strxfrm|wcscoll|wcsxfrm|wcsnrtombs|strcasestr|strpbrk|strlcpy) echo ret_x0 ;;
         strcspn|wmemcmp) echo ret_0 ;;
         wmemchr) echo ret_0 ;;
+        wcsftime|strftime_l) echo ret_1 ;;
         wcslen) echo ret_0 ;;
-        popen|newlocale|uselocale|localeconv|localtime|setlocale|AAssetManager_fromJava|AAssetManager_open|AAsset_open) echo ret_sp ;;
+        popen|newlocale|uselocale|localeconv|localtime|setlocale|AAssetManager_fromJava|AAssetManager_open|AAsset_open|tzname|environ) echo ret_sp ;;
         freelocale|puts|fputs|rewind|clearerr|feof|fgetpos|fsetpos|fseeko|setvbuf) echo ret_0 ;;
         fsync|ftruncate|freeaddrinfo|__assert2|__libc_init|AAsset_close) echo ret_0 ;;
-        AAsset_read|AAsset_seek|AAsset_getLength64|AAsset_openFileDescriptor64|recv|recvfrom|send|writev) echo ret_1 ;;
+        ZSTD_trace_decompress_begin|ZSTD_trace_decompress_end|zError) echo ret_0 ;;
+        AAsset_read|AAsset_seek|AAsset_getLength64|AAsset_openFileDescriptor64|writev) echo ret_1 ;;
         shutdown|listen) echo ret_0 ;;
         eglChooseConfig|eglInitialize|eglMakeCurrent|eglTerminate|eglDestroyContext|eglDestroySurface) echo ret_1 ;;
         eglCreateContext|eglCreatePbufferSurface|eglGetCurrentContext|eglGetDisplay|glGetString) echo ret_sp ;;
         optarg|__stack_chk_guard|_ctype_) echo ret_sp ;;
-        optind) echo ret_0 ;;
+        optind|daylight|timezone) echo ret_0 ;;
         __read_chk|ftello|geteuid|getpagesize|getpriority|mktime) echo ret_1 ;;
         __strncpy_chk2) echo guest_strncpy_x0_x1_x2 ;;
         __strcpy_chk) echo guest_strcpy_x0_x1 ;;
         strtold) echo guest_strtod_x0_x1 ;;
         powf) echo guest_pow_x0_x1 ;;
+        slCreateEngine) echo ret_0 ;;
+        SL_IID_*) echo ret_sp ;;
+        _Znwm|_Znam) echo guest_alloc_x0 ;;
+        _ZdlPv|_ZdaPv|_ZdlPvm|_ZdaPvm) echo guest_free_x0 ;;
+        _Unwind_Resume|__gxx_personality_v0|__cxa_allocate_exception|__cxa_begin_catch|__cxa_end_catch|__cxa_free_exception|__cxa_thread_atexit_impl|__cxa_throw|_ZSt9terminatev) echo ret_0 ;;
+        _ZTI*|_ZTV*) echo ret_sp ;;
+        _ZN*) echo ret_0 ;;
         isalnum|isalpha|iswalpha|iswblank|iswcntrl|iswdigit|iswlower|iswprint|iswpunct|iswspace|iswupper|iswxdigit) echo ret_0 ;;
         acos|asin|atan|atan2|sin|modf|vsprintf|perror|ferror) echo ret_0 ;;
         egl*) echo ret_0 ;;
@@ -134,7 +155,7 @@ map_callback() {
             fi
             echo ret_0
             ;;
-        __errno|__sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self)
+        __sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self)
             if is_strict_mode; then
                 return 1
             fi
@@ -152,15 +173,22 @@ map_callback() {
             fi
             echo ret_1
             ;;
-        syscall|__open_2|_exit|exit)
+        syscall|__open_2)
             if is_strict_mode; then
                 return 1
             fi
-            echo ret_neg1
+            echo ret_neg1_enosys
+            ;;
+        _exit|exit)
+            if is_strict_mode; then
+                return 1
+            fi
+            echo ret_neg1_eintr
             ;;
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
-        dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint) echo ret_x0 ;;
+        __errno|__errno_location) echo guest_errno_ptr ;;
+        dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint|__android_log_buf_write) echo ret_x0 ;;
         *)
             if is_compat_mode; then
                 case "$1" in
@@ -178,6 +206,7 @@ map_callback() {
 map_stub() {
     case "$1" in
         __cxa_atexit|__cxa_finalize|__stack_chk_fail|dlclose) echo 0 ;;
+        __cxa_*|__gxx_personality_v0|_Unwind_Resume|_ZSt9terminatev) echo 0 ;;
         *) return 1 ;;
     esac
 }
@@ -199,11 +228,34 @@ if [ ! -s "$TMP_LIB" ]; then
     exit 1
 fi
 
-readelf --wide -Ws "$TMP_LIB" \
-    | awk '$7 == "UND" && $8 != "" {print $8}' \
-    | sed 's/@.*$//' \
-    | sed '/^$/d' \
+: > "$REJECTED_FILE"
+
+LC_ALL=C readelf --wide -Ws "$TMP_LIB" \
+    | LC_ALL=C awk -v rejected="$REJECTED_FILE" '
+        function printable_ascii(s, t) {
+            t = s;
+            gsub(/[ -~]/, "", t);
+            return length(t) == 0;
+        }
+        function symbolish_ascii(s) {
+            return s ~ /^[A-Za-z_.$?][A-Za-z0-9_.$?@]*$/;
+        }
+        $7 == "UND" && $8 != "" {
+            sym = $8;
+            sub(/@.*/, "", sym);
+            if (sym == "") {
+                next;
+            }
+            if (printable_ascii(sym) && symbolish_ascii(sym)) {
+                print sym;
+            } else {
+                print sym >> rejected;
+            }
+        }
+    ' \
     | sort -u > "$TMP_IMPORTS"
+
+sort -u -o "$REJECTED_FILE" "$REJECTED_FILE"
 
 : > "$CALLBACK_FILE"
 : > "$STUB_FILE"
@@ -211,6 +263,7 @@ readelf --wide -Ws "$TMP_LIB" \
 
 mapped_count=0
 unmapped_count=0
+rejected_count=0
 
 while IFS= read -r sym; do
     [ -z "$sym" ] && continue
@@ -236,6 +289,7 @@ sort -u -o "$UNMAPPED_FILE" "$UNMAPPED_FILE"
 if [ "$unmapped_count" -eq 0 ]; then
     printf '# all imports mapped\n' > "$UNMAPPED_FILE"
 fi
+rejected_count=$(grep -cve '^[[:space:]]*$' "$REJECTED_FILE" || true)
 
 {
     echo "# Auto-generated import arguments for tiny_dbt"
@@ -255,6 +309,8 @@ echo "  callbacks: $CALLBACK_FILE"
 echo "  stubs:     $STUB_FILE"
 echo "  args:      $ARGS_FILE"
 echo "  unmapped:  $UNMAPPED_FILE"
+echo "  rejected:  $REJECTED_FILE"
 echo "  mode:      $PROFILE_MODE"
 echo "  mapped:    $mapped_count"
 echo "  unmapped:  $unmapped_count"
+echo "  rejected:  $rejected_count"
