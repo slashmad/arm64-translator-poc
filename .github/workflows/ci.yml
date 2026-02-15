@@ -49,9 +49,7 @@ jobs:
         run: |
           APK_PATH="${INPUT_APK_PATH}"
           if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
-            KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH="$APK_PATH" make run-kingshot-import-profile-all
-            make run-kingshot-coverage-gate
-            KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH="$APK_PATH" make run-kingshot-smoke-matrix-ci
+            KSHOT_APK_PATH="$APK_PATH" make verify-kingshot-modes-ci
           else
             echo "Skipping Kingshot verification (no valid workflow input 'kingshot_apk_path')."
           fi

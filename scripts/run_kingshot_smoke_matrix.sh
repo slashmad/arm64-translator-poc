@@ -9,6 +9,8 @@ ATTEMPTS=${4:-2}
 REPORT_DIR="$ROOT_DIR/reports"
 SUMMARY_FILE="$REPORT_DIR/kingshot_smoke_matrix_summary.txt"
 EXIT_REASON_SUMMARY_FILE="$REPORT_DIR/kingshot_smoke_matrix_exit_reason_summary.txt"
+METRICS_FILE="$REPORT_DIR/kingshot_smoke_matrix_metrics.txt"
+BLACKLIST_SUGGESTIONS_FILE="$REPORT_DIR/kingshot_smoke_blacklist_suggestions.txt"
 ALL_PROFILE_SUMMARY="$REPORT_DIR/kingshot_all_import_profiles_summary.txt"
 SMOKE_MAX_RETRIES=${SMOKE_MAX_RETRIES:-}
 SMOKE_FAIL_ON_ERROR=${SMOKE_FAIL_ON_ERROR:-0}
@@ -134,10 +136,20 @@ echo "# APK: $APK_PATH" >> "$SUMMARY_FILE"
 echo "# Params: mode=$PROFILE_MODE max_libs=$MAX_LIBS syms_per_lib=$SYMS_PER_LIB attempts=$ATTEMPTS smoke_max_retries=${SMOKE_MAX_RETRIES:-auto} smoke_fail_on_error=$SMOKE_FAIL_ON_ERROR smoke_timeout_sec=$SMOKE_TIMEOUT_SEC smoke_blacklist_file=$SMOKE_BLACKLIST_FILE" >> "$SUMMARY_FILE"
 echo "# Columns: status lib symbol attempts tiny_rc exit_reason trace_lines unsupported_lines log_file" >> "$SUMMARY_FILE"
 
+: > "$METRICS_FILE"
+echo "# Kingshot smoke matrix metrics" >> "$METRICS_FILE"
+echo "# Columns: status lib symbol attempts callback_branches local_ret_branches import_value_branches import_total_branches callback_hitrate_pct trace_lines unsupported_lines" >> "$METRICS_FILE"
+
 ok_count=0
 fail_count=0
 skip_count=0
 run_count=0
+attempts_total=0
+retries_total=0
+trace_total=0
+unsupported_total=0
+callback_branches_total=0
+import_branch_total=0
 
 extract_symbols() {
     lib_entry=$1
@@ -256,6 +268,9 @@ while IFS= read -r LIB_ENTRY; do
         exit_reason=$(sed -n 's/^  exit_reason:[[:space:]]*//p' "$TMP_OUT" | head -n 1)
         trace_lines=$(sed -n 's/^  trace:.*(\([0-9][0-9]*\) lines).*/\1/p' "$TMP_OUT" | head -n 1)
         unsupported_lines=$(sed -n 's/^  unsupported:.*(\([0-9][0-9]*\) lines).*/\1/p' "$TMP_OUT" | head -n 1)
+        callback_branches=$(sed -n 's/^  import-callback:.*branches=\([0-9][0-9]*\).*/\1/p' "$TMP_OUT" | awk '{s+=$1} END {print s+0}')
+        local_ret_branches=$(sed -n 's/^  local-ret: branches=\([0-9][0-9]*\).*/\1/p' "$TMP_OUT" | awk '{s+=$1} END {print s+0}')
+        import_value_branches=$(sed -n 's/^  import-value: branches=\([0-9][0-9]*\).*/\1/p' "$TMP_OUT" | awk '{s+=$1} END {print s+0}')
 
         [ -z "$symbol" ] && symbol="$SYMBOL"
         if [ -z "$exit_reason" ] && [ "$tiny_rc" -eq 124 ]; then
@@ -264,6 +279,27 @@ while IFS= read -r LIB_ENTRY; do
         [ -z "$exit_reason" ] && exit_reason="-"
         [ -z "$trace_lines" ] && trace_lines="-"
         [ -z "$unsupported_lines" ] && unsupported_lines="-"
+        import_total_branches=$((callback_branches + local_ret_branches + import_value_branches))
+        if [ "$import_total_branches" -gt 0 ]; then
+            callback_hitrate_pct=$(awk -v cb="$callback_branches" -v tot="$import_total_branches" 'BEGIN { printf "%.2f", (100.0*cb)/tot }')
+        else
+            callback_hitrate_pct="0.00"
+        fi
+
+        attempts_total=$((attempts_total + attempts_used))
+        retries_total=$((retries_total + attempts_used - 1))
+        if [ "$trace_lines" != "-" ]; then
+            trace_total=$((trace_total + trace_lines))
+        fi
+        if [ "$unsupported_lines" != "-" ]; then
+            unsupported_total=$((unsupported_total + unsupported_lines))
+        fi
+        callback_branches_total=$((callback_branches_total + callback_branches))
+        import_branch_total=$((import_branch_total + import_total_branches))
+
+        printf '%s %s %s %s %s %s %s %s %s %s %s\n' \
+            "$status" "$LIB_ENTRY" "$symbol" "$attempts_used" "$callback_branches" "$local_ret_branches" \
+            "$import_value_branches" "$import_total_branches" "$callback_hitrate_pct" "$trace_lines" "$unsupported_lines" >> "$METRICS_FILE"
 
         printf '%s %s %s %s %s %s %s %s %s\n' \
             "$status" "$LIB_ENTRY" "$symbol" "$attempts_used" "$tiny_rc" "$exit_reason" "$trace_lines" "$unsupported_lines" "$LOG_FILE" >> "$SUMMARY_FILE"
@@ -277,6 +313,45 @@ awk 'NF >= 9 && $1 !~ /^#/ { key=$1 FS $6; c[key]++; } END { for (k in c) { prin
     | sort -nr \
     | awk '{printf "%s %s %s\n", $1, $2, $3}' >> "$EXIT_REASON_SUMMARY_FILE"
 
+if [ "$run_count" -gt 0 ]; then
+    avg_attempts=$(awk -v total="$attempts_total" -v runs="$run_count" 'BEGIN { printf "%.2f", total/runs }')
+    avg_trace=$(awk -v total="$trace_total" -v runs="$run_count" 'BEGIN { printf "%.2f", total/runs }')
+    avg_unsupported=$(awk -v total="$unsupported_total" -v runs="$run_count" 'BEGIN { printf "%.2f", total/runs }')
+else
+    avg_attempts="0.00"
+    avg_trace="0.00"
+    avg_unsupported="0.00"
+fi
+if [ "$import_branch_total" -gt 0 ]; then
+    callback_hitrate_overall=$(awk -v cb="$callback_branches_total" -v tot="$import_branch_total" 'BEGIN { printf "%.2f", (100.0*cb)/tot }')
+else
+    callback_hitrate_overall="0.00"
+fi
+{
+    echo "# Totals"
+    echo "runs=$run_count"
+    echo "ok=$ok_count"
+    echo "fail=$fail_count"
+    echo "skip=$skip_count"
+    echo "attempts_total=$attempts_total"
+    echo "retries_total=$retries_total"
+    echo "avg_attempts_per_run=$avg_attempts"
+    echo "avg_trace_lines_per_run=$avg_trace"
+    echo "avg_unsupported_lines_per_run=$avg_unsupported"
+    echo "import_callback_branches_total=$callback_branches_total"
+    echo "import_branches_total=$import_branch_total"
+    echo "import_callback_hitrate_pct=$callback_hitrate_overall"
+} >> "$METRICS_FILE"
+
+: > "$BLACKLIST_SUGGESTIONS_FILE"
+{
+    echo "# Suggested smoke blacklist entries (auto-generated)"
+    echo "# Format: lib/arm64-v8a/libfoo.so[:symbol]"
+    awk 'NF >= 9 && $1 == "fail" && $2 ~ /^lib\/arm64-v8a\/.*\.so$/ {
+        printf "%s:%s # exit_reason=%s rc=%s\n", $2, $3, $6, $5;
+    }' "$SUMMARY_FILE" | sort -u
+} >> "$BLACKLIST_SUGGESTIONS_FILE"
+
 echo "Kingshot smoke matrix completed:"
 echo "  runs:    $run_count"
 echo "  ok:      $ok_count"
@@ -284,6 +359,8 @@ echo "  fail:    $fail_count"
 echo "  skip:    $skip_count"
 echo "  summary: $SUMMARY_FILE"
 echo "  reasons: $EXIT_REASON_SUMMARY_FILE"
+echo "  metrics: $METRICS_FILE"
+echo "  suggest: $BLACKLIST_SUGGESTIONS_FILE"
 
 if [ "$fail_count" -gt 0 ] && [ "$SMOKE_FAIL_ON_ERROR" -eq 1 ]; then
     echo "Smoke matrix failed: $fail_count runs failed and SMOKE_FAIL_ON_ERROR=1" >&2

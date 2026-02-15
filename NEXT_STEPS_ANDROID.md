@@ -55,6 +55,9 @@
 - Kingshot smoke-matrix finns nu via `make run-kingshot-smoke-matrix` (batch mot toppbibliotek med loggar + sammanfattning).
 - Smoke-matrixen har nu timeout + blacklist-stöd (`SMOKE_TIMEOUT_SEC`, `SMOKE_BLACKLIST_FILE`) och loggar `timeout` som tydlig exit-reason.
 - En default blacklist finns nu i `profiles/kingshot_smoke_blacklist.txt` för kända non-returning symboler (`_start` i crashlytics-trampoline).
+- Smoke-matrixen skriver nu även metrics (`reports/kingshot_smoke_matrix_metrics.txt`) och auto-förslag för blacklist (`reports/kingshot_smoke_blacklist_suggestions.txt`).
+- Profilering stöder nu även `minimal`-läge för mer konservativ importmappning per bibliotek.
+- Lägesjämförelse mellan `relaxed/strict/compat/minimal` finns nu via `make run-kingshot-mode-regression-ci`.
 - Import-callbacks täcker nu även `guest_vsnprintf_x0_x1_x2_x3` och `guest_vsscanf_x0_x1_x2`.
 - Import-callbacks täcker nu även `guest_vsnprintf_chk_x0_x1_x4_x5` för `__vsnprintf_chk`.
 - Import-callbacks täcker nu även `guest_vfprintf_x0_x1_x2` och `guest_vasprintf_x0_x1_x2`.
@@ -65,7 +68,9 @@
 - Edge-case regressioner finns nu för `snprintf` (`inf/nan`, trunc-edge) och `sscanf`/`strtod` (inverterad scanset, `nan(...)`).
 - Ett första NativeBridge/loader-skelett finns nu i `nativebridge_skeleton/` (`make run-nativebridge-skeleton-build`, `make run-nativebridge-skeleton-demo`).
 - `run-nativebridge-skeleton-demo` är nu kopplad till Kingshot-profiler och visar aktiv callback/stub-profil vid körning.
+- NativeBridge-demot kan nu även trigga en riktig ELF-symbol smoke-körning via `TINY_NB_SMOKE_*` (mål: `make run-nativebridge-skeleton-runtime-smoke`).
 - Kingshot all-lib importtäckning i relaxed-läge är nu `100.00%` (1776/1776 mapped, 0 unmapped).
+- Batchad E2E-körning för utvalda riktiga bibliotek finns nu via `make run-kingshot-e2e-batch` och `reports/kingshot_e2e_batch_report.txt`.
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).

@@ -16,10 +16,10 @@ UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
 REJECTED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_rejected_import_symbols.txt"
 
 case "$PROFILE_MODE" in
-    relaxed|strict|compat)
+    relaxed|strict|compat|minimal)
         ;;
     *)
-        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict|compat)" >&2
+        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict|compat|minimal)" >&2
         exit 1
         ;;
 esac
@@ -30,6 +30,10 @@ is_strict_mode() {
 
 is_compat_mode() {
     [ "$PROFILE_MODE" = "compat" ]
+}
+
+is_minimal_mode() {
+    [ "$PROFILE_MODE" = "minimal" ]
 }
 
 map_callback() {
@@ -113,8 +117,13 @@ map_callback() {
         srand) echo ret_0 ;;
         getaddrinfo|ioctl|lstat|rename|unlink|kill|sigaltstack|ptrace|epoll_create1|epoll_ctl|epoll_wait|inotify_add_watch|inotify_init|timer_create|timer_settime|utimes|statfs|system) echo ret_neg1_enosys ;;
         access|faccessat|faccessat2|chmod|fchmod|chown|fchown|setpriority|setitimer) echo ret_neg1_eacces ;;
-        open|open64|openat|openat64|__open_2|execv|execve|execl|pipe2|process_vm_readv) echo ret_neg1_enoent ;;
+        open|open64|__open_2) echo guest_open_x0_x1_x2 ;;
+        openat|openat64) echo guest_openat_x0_x1_x2_x3 ;;
+        execv|execve|execl|pipe2|process_vm_readv) echo ret_neg1_enoent ;;
         flock) echo ret_0 ;;
+        close) echo guest_close_x0 ;;
+        read) echo guest_read_x0_x1_x2 ;;
+        write) echo guest_write_x0_x1_x2 ;;
         nanosleep|usleep|sleep) echo ret_neg1_eintr ;;
         gethostbyname|inet_ntoa|inet_addr|inet_ntop|strerror|realpath) echo ret_0 ;;
         gai_strerror|hstrerror) echo ret_sp ;;
@@ -196,49 +205,49 @@ map_callback() {
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_0
             ;;
         pthread_mutex_lock|pthread_mutex_unlock|pthread_once|pthread_key_create|pthread_key_delete|pthread_setspecific|pthread_create|pthread_join|pthread_detach|pthread_cond_wait|pthread_cond_broadcast|pthread_rwlock_wrlock|pthread_rwlock_unlock|pthread_rwlock_rdlock)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_0
             ;;
-        close|fclose|fflush|fseek|munmap|mprotect|setsockopt|getsockopt|fcntl|remove|raise|pclose)
-            if is_strict_mode; then
+        fclose|fflush|fseek|munmap|mprotect|setsockopt|getsockopt|fcntl|remove|raise|pclose)
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_0
             ;;
         __sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_sp
             ;;
-        read|write|fread|fwrite|fputc|open|lseek|lseek64|waitpid|readlink|getauxval)
-            if is_strict_mode; then
+        fread|fwrite|fputc|lseek|lseek64|waitpid|readlink|getauxval)
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_1
             ;;
         pthread_getspecific|getpid|gettid|sysconf|clock_gettime|gettimeofday|time|__system_property_get)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_1
             ;;
         syscall|__open_2)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_neg1_enosys
             ;;
         _exit|exit)
-            if is_strict_mode; then
+            if is_strict_mode || is_minimal_mode; then
                 return 1
             fi
             echo ret_neg1_eintr

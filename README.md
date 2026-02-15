@@ -80,7 +80,7 @@ Environment alternatives:
 - `SMOKE_FAIL_ON_ERROR` (for `scripts/run_kingshot_smoke_matrix.sh`)
 - `SMOKE_TIMEOUT_SEC` (per-run timeout in `run_kingshot_smoke_matrix.sh`)
 - `SMOKE_BLACKLIST_FILE` (skip problematic `lib` or `lib:symbol` rows in smoke matrix)
-- `KSHOT_PROFILE_MODE` (`relaxed`, `strict`, `compat`) for smoke/profile scripts
+- `KSHOT_PROFILE_MODE` (`relaxed`, `strict`, `compat`, `minimal`) for smoke/profile scripts
 
 ## Runtime Notes
 
@@ -110,6 +110,7 @@ Environment alternatives:
 - `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, `guest_tan_x0`, `guest_exp_x0`, `guest_log_x0`, `guest_log10_x0`, `guest_floor_x0`, `guest_ceil_x0`, `guest_trunc_x0`, `guest_fmod_x0_x1`, `guest_sin_x0`, `guest_sinh_x0`, `guest_tanh_x0`, `guest_sinf_x0`, `guest_sincosf_x0_x1_x2`, `guest_exp2f_x0`, `guest_log2f_x0`, `guest_log10f_x0`, and `guest_lround_x0` provide scalar FP math hooks.
 - `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, and `guest_tolower_x0` provide ctype hooks.
 - `guest_errno_ptr` returns a guest-memory errno slot, while `ret_neg1_enosys`, `ret_neg1_eagain`, `ret_neg1_eintr`, `ret_neg1_eacces`, `ret_neg1_enoent`, `ret_neg1_eperm`, and `ret_neg1_etimedout` return `-1` and set that errno slot.
+- `guest_open_x0_x1_x2`, `guest_openat_x0_x1_x2_x3`, `guest_read_x0_x1_x2`, `guest_write_x0_x1_x2`, and `guest_close_x0` provide a synthetic guest-FD model for file/I/O call paths.
 - `guest_handle_x0` now uses a bounded per-run handle cache to keep repeated handle-like imports stable without unbounded guest allocations.
 - `guest_gmtime_x0`, `guest_ctime_x0`, `guest_tzset_0`, `guest_daylight_ptr`, and `guest_timezone_ptr` expose basic time/tz hooks via guest-memory slots.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
@@ -217,14 +218,19 @@ make run-kingshot-import-profile-strict
 make run-kingshot-import-profile-all
 make run-kingshot-import-profile-all-strict
 make run-kingshot-import-profile-all-compat
+make run-kingshot-import-profile-all-minimal
 make run-kingshot-coverage-gate
 make run-kingshot-smoke
 make run-kingshot-smoke-matrix
 make run-kingshot-smoke-matrix-ci
+make run-kingshot-mode-regression-ci
+make run-kingshot-e2e-batch
 make verify-kingshot
 make verify-kingshot-ci
+make verify-kingshot-modes-ci
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
+make run-nativebridge-skeleton-runtime-smoke
 make run-nativebridge-skeleton-jni-probe
 make run-unsupported-log-example
 make run-elf-symbol-example
@@ -250,6 +256,13 @@ Generate strict profiles (no relaxed fallback stubs for many libc/pthread/syscal
 make run-kingshot-import-profile-strict
 make run-kingshot-import-profile-all-strict
 make run-kingshot-import-profile-all-compat
+make run-kingshot-import-profile-all-minimal
+```
+
+Run profile-mode regression checks (`relaxed/strict/compat/minimal`) and save per-mode reports:
+
+```sh
+make run-kingshot-mode-regression-ci
 ```
 
 Run the coverage regression gate (`reports/kingshot_all_import_coverage.txt` vs `kingshot_coverage_baseline.txt`):
@@ -316,13 +329,18 @@ All-lib profile output also includes:
 - `reports/kingshot_all_import_coverage.txt`
 - `reports/kingshot_smoke_matrix_summary.txt`
 - `reports/kingshot_smoke_matrix_exit_reason_summary.txt`
+- `reports/kingshot_smoke_matrix_metrics.txt`
+- `reports/kingshot_smoke_blacklist_suggestions.txt`
+- `reports/kingshot_mode_regression_summary.txt`
 - `reports/kingshot_e2e_demo_output.txt` (example real-lib smoke output)
+- `reports/kingshot_e2e_batch_report.txt`
 
 You can override the APK path used by `make` targets with:
 
 ```sh
 KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-import-profile-all
 KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-smoke-matrix-ci
+KSHOT_PROFILE_MODE=minimal KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-import-profile-all
 ```
 
 ## NativeBridge Skeleton
@@ -332,10 +350,13 @@ Build the placeholder NativeBridge-style stub and loader demo:
 ```sh
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
+make run-nativebridge-skeleton-runtime-smoke
 make run-nativebridge-skeleton-jni-probe
 ```
 
 `run-nativebridge-skeleton-demo` now auto-generates a Kingshot `libmain` profile first and passes profile callback/stub files into the loader demo, then resolves and invokes a trampoline (`cos(0)`) through the callback table. `run-nativebridge-skeleton-jni-probe` validates JNI-style runtime wiring.
+
+`run-nativebridge-skeleton-runtime-smoke` extends the demo by running a real ELF-symbol smoke execution through `tiny_dbt` after the trampoline probe.
 
 Skeleton files live under `nativebridge_skeleton/` and are intentionally minimal.
 
@@ -362,3 +383,5 @@ Main missing pieces for that goal include:
 ## Contributing
 
 See `CONTRIBUTING.md`.
+
+Release readiness checklist: `ALPHA_DONE_CHECKLIST.md`.

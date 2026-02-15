@@ -417,8 +417,10 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     size_t prev_handle_cache_len = g_tiny_dbt_handle_cache_len;
     uint64_t prev_handle_cache_keys[GUEST_HANDLE_CACHE_SLOTS];
     uint64_t prev_handle_cache_ptrs[GUEST_HANDLE_CACHE_SLOTS];
+    GuestFdEntry prev_guest_fds[GUEST_FD_TABLE_SIZE];
     memcpy(prev_handle_cache_keys, g_tiny_dbt_handle_cache_keys, sizeof(prev_handle_cache_keys));
     memcpy(prev_handle_cache_ptrs, g_tiny_dbt_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
+    memcpy(prev_guest_fds, g_tiny_dbt_guest_fds, sizeof(prev_guest_fds));
     g_tiny_dbt_current_guest_mem = dbt->guest_mem;
     g_tiny_dbt_errno_slot_addr = 0;
     g_tiny_dbt_daylight_slot_addr = 0;
@@ -428,6 +430,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     g_tiny_dbt_handle_cache_len = 0;
     memset(g_tiny_dbt_handle_cache_keys, 0, sizeof(g_tiny_dbt_handle_cache_keys));
     memset(g_tiny_dbt_handle_cache_ptrs, 0, sizeof(g_tiny_dbt_handle_cache_ptrs));
+    memset(g_tiny_dbt_guest_fds, 0, sizeof(g_tiny_dbt_guest_fds));
 
     typedef uint64_t (*JitFn)(CPUState *);
     JitFn fn = (JitFn)dbt->mem;
@@ -475,6 +478,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
         g_tiny_dbt_handle_cache_len = prev_handle_cache_len;
         memcpy(g_tiny_dbt_handle_cache_keys, prev_handle_cache_keys, sizeof(prev_handle_cache_keys));
         memcpy(g_tiny_dbt_handle_cache_ptrs, prev_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
+        memcpy(g_tiny_dbt_guest_fds, prev_guest_fds, sizeof(prev_guest_fds));
         return false;
     }
     state->nzcv = rflags_to_nzcv(state->rflags);
@@ -495,6 +499,7 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     g_tiny_dbt_handle_cache_len = prev_handle_cache_len;
     memcpy(g_tiny_dbt_handle_cache_keys, prev_handle_cache_keys, sizeof(prev_handle_cache_keys));
     memcpy(g_tiny_dbt_handle_cache_ptrs, prev_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
+    memcpy(g_tiny_dbt_guest_fds, prev_guest_fds, sizeof(prev_guest_fds));
     return true;
 }
 

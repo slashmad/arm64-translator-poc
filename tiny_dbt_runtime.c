@@ -170,11 +170,22 @@ enum {
     IMPORT_CB_GUEST_EXP2F_X0 = 0x9C,
     IMPORT_CB_GUEST_LOG2F_X0 = 0x9D,
     IMPORT_CB_GUEST_LOG10F_X0 = 0x9E,
-    IMPORT_CB_GUEST_LROUND_X0 = 0x9F
+    IMPORT_CB_GUEST_LROUND_X0 = 0x9F,
+    IMPORT_CB_GUEST_OPEN_X0_X1_X2 = 0xA0,
+    IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3 = 0xA1,
+    IMPORT_CB_GUEST_READ_X0_X1_X2 = 0xA2,
+    IMPORT_CB_GUEST_WRITE_X0_X1_X2 = 0xA3,
+    IMPORT_CB_GUEST_CLOSE_X0 = 0xA4
 };
 
 enum {
     GUEST_HANDLE_CACHE_SLOTS = 64
+};
+
+enum {
+    GUEST_FD_TABLE_SIZE = 32,
+    GUEST_FD_MIN = 3,
+    GUEST_FD_SYNTHETIC_MAX_READ = 16
 };
 
 struct TinyDbt {
@@ -227,6 +238,15 @@ typedef struct {
     size_t len;
     size_t cap;
 } OffPatchVec;
+
+typedef struct {
+    bool used;
+    bool readable;
+    bool writable;
+    uint64_t cursor;
+    uint64_t seed;
+    uint64_t bytes_written;
+} GuestFdEntry;
 
 typedef enum {
     GUEST_FMT_LEN_NONE = 0,
@@ -303,6 +323,11 @@ static uint64_t guest_ctime_x0(CPUState *state);
 static uint64_t guest_tzset_0(CPUState *state);
 static uint64_t guest_daylight_ptr(CPUState *state);
 static uint64_t guest_timezone_ptr(CPUState *state);
+static uint64_t guest_open_x0_x1_x2(CPUState *state);
+static uint64_t guest_openat_x0_x1_x2_x3(CPUState *state);
+static uint64_t guest_read_x0_x1_x2(CPUState *state);
+static uint64_t guest_write_x0_x1_x2(CPUState *state);
+static uint64_t guest_close_x0(CPUState *state);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -317,6 +342,7 @@ static _Thread_local uint64_t g_tiny_dbt_gmtime_tm_addr = 0;
 static _Thread_local size_t g_tiny_dbt_handle_cache_len = 0;
 static _Thread_local uint64_t g_tiny_dbt_handle_cache_keys[GUEST_HANDLE_CACHE_SLOTS];
 static _Thread_local uint64_t g_tiny_dbt_handle_cache_ptrs[GUEST_HANDLE_CACHE_SLOTS];
+static _Thread_local GuestFdEntry g_tiny_dbt_guest_fds[GUEST_FD_TABLE_SIZE];
 
 static void tiny_dbt_set_error(TinyDbt *dbt, const char *fmt, ...) {
     if (!dbt) {
@@ -1486,6 +1512,155 @@ static uint64_t guest_timezone_ptr(CPUState *state) {
     return g_tiny_dbt_timezone_slot_addr ? g_tiny_dbt_timezone_slot_addr : (state ? state->sp : 0);
 }
 
+static uint64_t guest_open_common(CPUState *state, uint64_t path_addr, uint64_t flags) {
+    bool terminated = false;
+    uint64_t max_len = 0;
+    uint64_t len = 0;
+    uint64_t seed = 1469598103934665603ull;
+    int accmode = 0;
+
+    if (!state || !g_tiny_dbt_current_guest_mem || path_addr >= (uint64_t)GUEST_MEM_SIZE) {
+        guest_errno_write(state, ENOENT);
+        return UINT64_MAX;
+    }
+
+    max_len = (uint64_t)GUEST_MEM_SIZE - path_addr;
+    len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, path_addr, max_len, &terminated);
+    if (!terminated || len == 0 || len == UINT64_MAX) {
+        guest_errno_write(state, ENOENT);
+        return UINT64_MAX;
+    }
+    for (uint64_t i = 0; i < len; ++i) {
+        seed ^= g_tiny_dbt_current_guest_mem[(size_t)(path_addr + i)];
+        seed *= 1099511628211ull;
+    }
+
+    accmode = (int)(flags & 0x3u);
+    for (size_t idx = 0; idx < GUEST_FD_TABLE_SIZE; ++idx) {
+        GuestFdEntry *fd = &g_tiny_dbt_guest_fds[idx];
+        if (fd->used) {
+            continue;
+        }
+        memset(fd, 0, sizeof(*fd));
+        fd->used = true;
+        fd->readable = (accmode != 1); /* !O_WRONLY */
+        fd->writable = (accmode != 0); /* O_WRONLY/O_RDWR */
+        fd->cursor = 0;
+        fd->seed = seed + (uint64_t)idx;
+        return (uint64_t)(GUEST_FD_MIN + idx);
+    }
+
+    guest_errno_write(state, EMFILE);
+    return UINT64_MAX;
+}
+
+static bool guest_fd_lookup(CPUState *state, uint64_t guest_fd, GuestFdEntry **out_fd) {
+    size_t idx = 0;
+    if (!out_fd || guest_fd < GUEST_FD_MIN) {
+        guest_errno_write(state, EBADF);
+        return false;
+    }
+    idx = (size_t)(guest_fd - GUEST_FD_MIN);
+    if (idx >= GUEST_FD_TABLE_SIZE || !g_tiny_dbt_guest_fds[idx].used) {
+        guest_errno_write(state, EBADF);
+        return false;
+    }
+    *out_fd = &g_tiny_dbt_guest_fds[idx];
+    return true;
+}
+
+static uint64_t guest_open_x0_x1_x2(CPUState *state) {
+    if (!state) {
+        return UINT64_MAX;
+    }
+    return guest_open_common(state, state->x[0], state->x[1]);
+}
+
+static uint64_t guest_openat_x0_x1_x2_x3(CPUState *state) {
+    if (!state) {
+        return UINT64_MAX;
+    }
+    /* x0=dirfd is intentionally ignored in this synthetic PoC fd model. */
+    return guest_open_common(state, state->x[1], state->x[2]);
+}
+
+static uint64_t guest_read_x0_x1_x2(CPUState *state) {
+    GuestFdEntry *fd = NULL;
+    uint64_t dst = 0;
+    uint64_t count = 0;
+    uint64_t remain = 0;
+    uint64_t n = 0;
+
+    if (!state) {
+        return UINT64_MAX;
+    }
+    if (!guest_fd_lookup(state, state->x[0], &fd) || !fd->readable) {
+        guest_errno_write(state, EBADF);
+        return UINT64_MAX;
+    }
+
+    dst = state->x[1];
+    count = state->x[2];
+    if (count == 0) {
+        return 0;
+    }
+    if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(dst, count)) {
+        guest_errno_write(state, EFAULT);
+        return UINT64_MAX;
+    }
+
+    if (fd->cursor >= GUEST_FD_SYNTHETIC_MAX_READ) {
+        return 0; /* synthetic EOF */
+    }
+    remain = GUEST_FD_SYNTHETIC_MAX_READ - fd->cursor;
+    n = count < remain ? count : remain;
+    for (uint64_t i = 0; i < n; ++i) {
+        g_tiny_dbt_current_guest_mem[(size_t)(dst + i)] = (uint8_t)((fd->seed + fd->cursor + i) & 0xFFu);
+    }
+    fd->cursor += n;
+    return n;
+}
+
+static uint64_t guest_write_x0_x1_x2(CPUState *state) {
+    GuestFdEntry *fd = NULL;
+    uint64_t src = 0;
+    uint64_t count = 0;
+
+    if (!state) {
+        return UINT64_MAX;
+    }
+    if (!guest_fd_lookup(state, state->x[0], &fd) || !fd->writable) {
+        guest_errno_write(state, EBADF);
+        return UINT64_MAX;
+    }
+
+    src = state->x[1];
+    count = state->x[2];
+    if (count == 0) {
+        return 0;
+    }
+    if (!g_tiny_dbt_current_guest_mem || !guest_mem_range_valid(src, count)) {
+        guest_errno_write(state, EFAULT);
+        return UINT64_MAX;
+    }
+
+    if (fd->bytes_written > UINT64_MAX - count) {
+        fd->bytes_written = UINT64_MAX;
+    } else {
+        fd->bytes_written += count;
+    }
+    return count;
+}
+
+static uint64_t guest_close_x0(CPUState *state) {
+    GuestFdEntry *fd = NULL;
+    if (!state || !guest_fd_lookup(state, state->x[0], &fd)) {
+        return UINT64_MAX;
+    }
+    memset(fd, 0, sizeof(*fd));
+    return 0;
+}
+
 static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value) {
     switch (len) {
         case GUEST_FMT_LEN_HH: {
@@ -2008,6 +2183,16 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             return guest_errno_ptr(state);
         case IMPORT_CB_GUEST_HANDLE_X0:
             return guest_handle_x0(state);
+        case IMPORT_CB_GUEST_OPEN_X0_X1_X2:
+            return guest_open_x0_x1_x2(state);
+        case IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3:
+            return guest_openat_x0_x1_x2_x3(state);
+        case IMPORT_CB_GUEST_READ_X0_X1_X2:
+            return guest_read_x0_x1_x2(state);
+        case IMPORT_CB_GUEST_WRITE_X0_X1_X2:
+            return guest_write_x0_x1_x2(state);
+        case IMPORT_CB_GUEST_CLOSE_X0:
+            return guest_close_x0(state);
         case IMPORT_CB_GUEST_ALLOC_X0: {
             uint64_t ptr = 0;
             uint64_t size = 0;

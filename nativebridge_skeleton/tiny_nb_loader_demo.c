@@ -35,6 +35,44 @@ static size_t count_profile_specs(const char *path) {
     return count;
 }
 
+static int maybe_run_runtime_smoke(void) {
+    const char *apk_path = getenv("TINY_NB_SMOKE_APK");
+    const char *lib_entry = getenv("TINY_NB_SMOKE_LIB");
+    const char *symbol = getenv("TINY_NB_SMOKE_SYMBOL");
+    const char *max_retries = getenv("TINY_NB_SMOKE_MAX_RETRIES");
+    const char *script_path = getenv("TINY_NB_SMOKE_SCRIPT");
+    char cmd[2048];
+    int rc = 0;
+
+    if (!apk_path || apk_path[0] == '\0') {
+        return 0;
+    }
+    if (!lib_entry || lib_entry[0] == '\0') {
+        lib_entry = "lib/arm64-v8a/libmain.so";
+    }
+    if (!symbol || symbol[0] == '\0') {
+        symbol = "JNI_OnLoad";
+    }
+    if (!script_path || script_path[0] == '\0') {
+        script_path = "../scripts/run_kingshot_smoke.sh";
+    }
+
+    if (max_retries && max_retries[0] != '\0') {
+        snprintf(cmd, sizeof(cmd), "%s '%s' '%s' '%s' '%s'", script_path, apk_path, lib_entry, symbol, max_retries);
+    } else {
+        snprintf(cmd, sizeof(cmd), "%s '%s' '%s' '%s'", script_path, apk_path, lib_entry, symbol);
+    }
+
+    printf("NativeBridge runtime smoke: %s\n", cmd);
+    rc = system(cmd);
+    if (rc != 0) {
+        fprintf(stderr, "Runtime smoke command failed with code %d\n", rc);
+        return 1;
+    }
+    printf("NativeBridge runtime smoke OK: %s %s\n", lib_entry, symbol);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     const char *bridge_path = "./libtiny_nativebridge_stub.so";
     const char *cb_profile = getenv("TINY_NB_PROFILE_CALLBACKS");
@@ -122,6 +160,15 @@ int main(int argc, char **argv) {
     }
 
     printf("Bridge smoke OK: loaded libm + resolved/called cos\n");
+
+    if (maybe_run_runtime_smoke() != 0) {
+        dlclose(libm_handle);
+        if (cb->terminate) {
+            cb->terminate();
+        }
+        dlclose(bridge_handle);
+        return 1;
+    }
 
     dlclose(libm_handle);
     if (cb->terminate) {

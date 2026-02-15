@@ -128,7 +128,12 @@ enum {
     IMPORT_CB_GUEST_EXP2F_X0 = 0x9C,
     IMPORT_CB_GUEST_LOG2F_X0 = 0x9D,
     IMPORT_CB_GUEST_LOG10F_X0 = 0x9E,
-    IMPORT_CB_GUEST_LROUND_X0 = 0x9F
+    IMPORT_CB_GUEST_LROUND_X0 = 0x9F,
+    IMPORT_CB_GUEST_OPEN_X0_X1_X2 = 0xA0,
+    IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3 = 0xA1,
+    IMPORT_CB_GUEST_READ_X0_X1_X2 = 0xA2,
+    IMPORT_CB_GUEST_WRITE_X0_X1_X2 = 0xA3,
+    IMPORT_CB_GUEST_CLOSE_X0 = 0xA4
 };
 
 typedef struct {
@@ -565,6 +570,26 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_LROUND_X0;
         return true;
     }
+    if (strcmp(kind, "guest_open_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_OPEN_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_openat_x0_x1_x2_x3") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3;
+        return true;
+    }
+    if (strcmp(kind, "guest_read_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_READ_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_write_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_WRITE_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_close_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_CLOSE_X0;
+        return true;
+    }
     if (strcmp(kind, "guest_gmtime_x0") == 0) {
         *out_callback_id = IMPORT_CB_GUEST_GMTIME_X0;
         return true;
@@ -774,6 +799,16 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_log10f_x0";
         case IMPORT_CB_GUEST_LROUND_X0:
             return "guest_lround_x0";
+        case IMPORT_CB_GUEST_OPEN_X0_X1_X2:
+            return "guest_open_x0_x1_x2";
+        case IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3:
+            return "guest_openat_x0_x1_x2_x3";
+        case IMPORT_CB_GUEST_READ_X0_X1_X2:
+            return "guest_read_x0_x1_x2";
+        case IMPORT_CB_GUEST_WRITE_X0_X1_X2:
+            return "guest_write_x0_x1_x2";
+        case IMPORT_CB_GUEST_CLOSE_X0:
+            return "guest_close_x0";
         case IMPORT_CB_GUEST_GMTIME_X0:
             return "guest_gmtime_x0";
         case IMPORT_CB_GUEST_CTIME_X0:
@@ -973,6 +1008,13 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"basename", IMPORT_CB_GUEST_BASENAME_X0},
         {"strdup", IMPORT_CB_GUEST_STRDUP_X0},
         {"strtoll", IMPORT_CB_GUEST_STRTOL_X0_X1_X2},
+        {"open", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
+        {"open64", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
+        {"openat", IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3},
+        {"openat64", IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3},
+        {"read", IMPORT_CB_GUEST_READ_X0_X1_X2},
+        {"write", IMPORT_CB_GUEST_WRITE_X0_X1_X2},
+        {"close", IMPORT_CB_GUEST_CLOSE_X0},
     };
     static const struct {
         const char *name;
@@ -1018,7 +1060,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"prctl", IMPORT_CB_RET_0},
         {"uname", IMPORT_CB_RET_0},
         {"syscall", IMPORT_CB_RET_NEG1_ENOSYS},
-        {"__open_2", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"__open_2", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
         {"_exit", IMPORT_CB_RET_NEG1_EINTR},
         {"exit", IMPORT_CB_RET_NEG1_EINTR},
         {"dladdr", IMPORT_CB_RET_0},
@@ -1036,6 +1078,14 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"dup2", IMPORT_CB_RET_NEG1_ENOSYS},
         {"execl", IMPORT_CB_RET_NEG1_ENOSYS},
         {"execve", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"open", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
+        {"open64", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
+        {"openat", IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3},
+        {"openat64", IMPORT_CB_GUEST_OPENAT_X0_X1_X2_X3},
+        {"__open_2", IMPORT_CB_GUEST_OPEN_X0_X1_X2},
+        {"read", IMPORT_CB_GUEST_READ_X0_X1_X2},
+        {"write", IMPORT_CB_GUEST_WRITE_X0_X1_X2},
+        {"close", IMPORT_CB_GUEST_CLOSE_X0},
         {"fileno", IMPORT_CB_RET_1},
         {"fork", IMPORT_CB_RET_NEG1_ENOSYS},
         {"getaddrinfo", IMPORT_CB_RET_NEG1_ENOSYS},
@@ -2683,7 +2733,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_neg1_eacces, ret_neg1_enoent, ret_neg1_eperm, ret_neg1_etimedout, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_handle_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_exp_x0, guest_log_x0, guest_log10_x0, guest_floor_x0, guest_ceil_x0, guest_trunc_x0, guest_fmod_x0_x1, guest_sin_x0, guest_sinh_x0, guest_tanh_x0, guest_sinf_x0, guest_sincosf_x0_x1_x2, guest_exp2f_x0, guest_log2f_x0, guest_log10f_x0, guest_lround_x0, guest_acosf_x0, guest_asinf_x0, guest_atan2f_x0_x1, guest_expf_x0, guest_logf_x0, guest_fmodf_x0_x1, guest_gmtime_x0, guest_ctime_x0, guest_tzset_0, guest_daylight_ptr, guest_timezone_ptr, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_neg1_eacces, ret_neg1_enoent, ret_neg1_eperm, ret_neg1_etimedout, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_handle_x0, guest_open_x0_x1_x2, guest_openat_x0_x1_x2_x3, guest_read_x0_x1_x2, guest_write_x0_x1_x2, guest_close_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_exp_x0, guest_log_x0, guest_log10_x0, guest_floor_x0, guest_ceil_x0, guest_trunc_x0, guest_fmod_x0_x1, guest_sin_x0, guest_sinh_x0, guest_tanh_x0, guest_sinf_x0, guest_sincosf_x0_x1_x2, guest_exp2f_x0, guest_log2f_x0, guest_log10f_x0, guest_lround_x0, guest_acosf_x0, guest_asinf_x0, guest_atan2f_x0_x1, guest_expf_x0, guest_logf_x0, guest_fmodf_x0_x1, guest_gmtime_x0, guest_ctime_x0, guest_tzset_0, guest_daylight_ptr, guest_timezone_ptr, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic, android-compat)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"
