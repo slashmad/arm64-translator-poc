@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sys/mman.h>
 #include <unistd.h>
 
@@ -137,7 +138,43 @@ enum {
     IMPORT_CB_RET_NEG1_ENOSYS = 0x7C,
     IMPORT_CB_RET_NEG1_EAGAIN = 0x7D,
     IMPORT_CB_RET_NEG1_EINTR = 0x7E,
-    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F
+    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F,
+    IMPORT_CB_GUEST_HANDLE_X0 = 0x80,
+    IMPORT_CB_GUEST_ACOSF_X0 = 0x81,
+    IMPORT_CB_GUEST_ASINF_X0 = 0x82,
+    IMPORT_CB_GUEST_ATAN2F_X0_X1 = 0x83,
+    IMPORT_CB_GUEST_EXPF_X0 = 0x84,
+    IMPORT_CB_GUEST_LOGF_X0 = 0x85,
+    IMPORT_CB_GUEST_FMODF_X0_X1 = 0x86,
+    IMPORT_CB_GUEST_GMTIME_X0 = 0x87,
+    IMPORT_CB_GUEST_CTIME_X0 = 0x88,
+    IMPORT_CB_GUEST_TZSET_0 = 0x89,
+    IMPORT_CB_GUEST_DAYLIGHT_PTR = 0x8A,
+    IMPORT_CB_GUEST_TIMEZONE_PTR = 0x8B,
+    IMPORT_CB_RET_NEG1_EACCES = 0x8C,
+    IMPORT_CB_RET_NEG1_ENOENT = 0x8D,
+    IMPORT_CB_RET_NEG1_EPERM = 0x8E,
+    IMPORT_CB_RET_NEG1_ETIMEDOUT = 0x8F,
+    IMPORT_CB_GUEST_EXP_X0 = 0x90,
+    IMPORT_CB_GUEST_LOG_X0 = 0x91,
+    IMPORT_CB_GUEST_LOG10_X0 = 0x92,
+    IMPORT_CB_GUEST_FLOOR_X0 = 0x93,
+    IMPORT_CB_GUEST_CEIL_X0 = 0x94,
+    IMPORT_CB_GUEST_TRUNC_X0 = 0x95,
+    IMPORT_CB_GUEST_FMOD_X0_X1 = 0x96,
+    IMPORT_CB_GUEST_SIN_X0 = 0x97,
+    IMPORT_CB_GUEST_SINH_X0 = 0x98,
+    IMPORT_CB_GUEST_TANH_X0 = 0x99,
+    IMPORT_CB_GUEST_SINF_X0 = 0x9A,
+    IMPORT_CB_GUEST_SINCOSF_X0_X1_X2 = 0x9B,
+    IMPORT_CB_GUEST_EXP2F_X0 = 0x9C,
+    IMPORT_CB_GUEST_LOG2F_X0 = 0x9D,
+    IMPORT_CB_GUEST_LOG10F_X0 = 0x9E,
+    IMPORT_CB_GUEST_LROUND_X0 = 0x9F
+};
+
+enum {
+    GUEST_HANDLE_CACHE_SLOTS = 64
 };
 
 struct TinyDbt {
@@ -254,9 +291,18 @@ static bool guest_sscanf_store_float(uint8_t *mem, uint64_t addr, GuestFmtLength
 static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state);
 static double guest_fp_arg_f64(const CPUState *state, unsigned idx);
 static uint64_t guest_fp_ret_f64(CPUState *state, double value);
+static float guest_fp_arg_f32(const CPUState *state, unsigned idx);
+static uint64_t guest_fp_ret_f32(CPUState *state, float value);
 static bool guest_errno_slot_ensure(CPUState *state, uint64_t *out_addr);
 static void guest_errno_write(CPUState *state, uint64_t err);
 static uint64_t guest_errno_ptr(CPUState *state);
+static bool guest_static_slot_ensure(CPUState *state, uint64_t *slot_addr, uint64_t align, uint64_t size);
+static uint64_t guest_handle_x0(CPUState *state);
+static uint64_t guest_gmtime_x0(CPUState *state);
+static uint64_t guest_ctime_x0(CPUState *state);
+static uint64_t guest_tzset_0(CPUState *state);
+static uint64_t guest_daylight_ptr(CPUState *state);
+static uint64_t guest_timezone_ptr(CPUState *state);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -264,6 +310,13 @@ static uint64_t guest_errno_ptr(CPUState *state);
  */
 static _Thread_local uint8_t *g_tiny_dbt_current_guest_mem = NULL;
 static _Thread_local uint64_t g_tiny_dbt_errno_slot_addr = 0;
+static _Thread_local uint64_t g_tiny_dbt_daylight_slot_addr = 0;
+static _Thread_local uint64_t g_tiny_dbt_timezone_slot_addr = 0;
+static _Thread_local uint64_t g_tiny_dbt_ctime_buf_addr = 0;
+static _Thread_local uint64_t g_tiny_dbt_gmtime_tm_addr = 0;
+static _Thread_local size_t g_tiny_dbt_handle_cache_len = 0;
+static _Thread_local uint64_t g_tiny_dbt_handle_cache_keys[GUEST_HANDLE_CACHE_SLOTS];
+static _Thread_local uint64_t g_tiny_dbt_handle_cache_ptrs[GUEST_HANDLE_CACHE_SLOTS];
 
 static void tiny_dbt_set_error(TinyDbt *dbt, const char *fmt, ...) {
     if (!dbt) {
@@ -1227,25 +1280,66 @@ static uint64_t guest_fp_ret_f64(CPUState *state, double value) {
     return bits;
 }
 
-static bool guest_errno_slot_ensure(CPUState *state, uint64_t *out_addr) {
+static float guest_fp_arg_f32(const CPUState *state, unsigned idx) {
+    uint32_t bits = 0;
+    float value = 0.0f;
+
+    if (!state || idx >= 32u) {
+        return 0.0f;
+    }
+    bits = (uint32_t)(state->v[idx][0] & 0xFFFFFFFFu);
+    if (bits == 0 && idx < 31u) {
+        bits = (uint32_t)(state->x[idx] & 0xFFFFFFFFu);
+    }
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static uint64_t guest_fp_ret_f32(CPUState *state, float value) {
+    uint32_t bits = 0;
+
+    memcpy(&bits, &value, sizeof(bits));
+    if (state) {
+        state->v[0][0] = (state->v[0][0] & 0xFFFFFFFF00000000ull) | (uint64_t)bits;
+    }
+    return (uint64_t)bits;
+}
+
+static bool guest_static_slot_ensure(CPUState *state, uint64_t *slot_addr, uint64_t align, uint64_t size) {
     uint64_t addr = 0;
     uint64_t zero = 0;
 
+    if (!state || !slot_addr || !g_tiny_dbt_current_guest_mem || size == 0) {
+        return false;
+    }
+    if (*slot_addr != 0 && guest_mem_range_valid(*slot_addr, size)) {
+        return true;
+    }
+    if (align == 0) {
+        align = 1;
+    }
+    if (!guest_heap_alloc_aligned(state, align, size, &addr) || !guest_mem_range_valid(addr, size)) {
+        return false;
+    }
+    for (uint64_t off = 0; off + sizeof(zero) <= size; off += sizeof(zero)) {
+        memcpy(g_tiny_dbt_current_guest_mem + (size_t)(addr + off), &zero, sizeof(zero));
+    }
+    if ((size % sizeof(zero)) != 0) {
+        uint64_t off = size - (size % sizeof(zero));
+        memcpy(g_tiny_dbt_current_guest_mem + (size_t)(addr + off), &zero, (size_t)(size - off));
+    }
+    *slot_addr = addr;
+    return true;
+}
+
+static bool guest_errno_slot_ensure(CPUState *state, uint64_t *out_addr) {
     if (!state || !out_addr || !g_tiny_dbt_current_guest_mem) {
         return false;
     }
-    if (g_tiny_dbt_errno_slot_addr != 0 &&
-        guest_mem_range_valid(g_tiny_dbt_errno_slot_addr, sizeof(uint64_t))) {
-        *out_addr = g_tiny_dbt_errno_slot_addr;
-        return true;
-    }
-    if (!guest_heap_alloc_aligned(state, sizeof(uint64_t), sizeof(uint64_t), &addr) ||
-        !guest_mem_range_valid(addr, sizeof(uint64_t))) {
+    if (!guest_static_slot_ensure(state, &g_tiny_dbt_errno_slot_addr, sizeof(uint64_t), sizeof(uint64_t))) {
         return false;
     }
-    memcpy(g_tiny_dbt_current_guest_mem + (size_t)addr, &zero, sizeof(zero));
-    g_tiny_dbt_errno_slot_addr = addr;
-    *out_addr = addr;
+    *out_addr = g_tiny_dbt_errno_slot_addr;
     return true;
 }
 
@@ -1263,6 +1357,133 @@ static uint64_t guest_errno_ptr(CPUState *state) {
         return state ? state->sp : 0;
     }
     return addr;
+}
+
+static uint64_t guest_handle_x0(CPUState *state) {
+    uint64_t key = 0;
+    uint64_t ptr = 0;
+    uint64_t payload[2];
+
+    if (!state || !g_tiny_dbt_current_guest_mem) {
+        return 0;
+    }
+    key = state->x[0];
+    for (size_t i = 0; i < g_tiny_dbt_handle_cache_len; ++i) {
+        if (g_tiny_dbt_handle_cache_keys[i] == key) {
+            return g_tiny_dbt_handle_cache_ptrs[i];
+        }
+    }
+    if (!guest_heap_alloc_aligned(state, sizeof(uint64_t), sizeof(payload), &ptr) ||
+        !guest_mem_range_valid(ptr, sizeof(payload))) {
+        return state->sp;
+    }
+    payload[0] = key;
+    payload[1] = 0x48414E444C455345ull;
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)ptr, payload, sizeof(payload));
+    if (g_tiny_dbt_handle_cache_len < GUEST_HANDLE_CACHE_SLOTS) {
+        size_t idx = g_tiny_dbt_handle_cache_len++;
+        g_tiny_dbt_handle_cache_keys[idx] = key;
+        g_tiny_dbt_handle_cache_ptrs[idx] = ptr;
+    } else {
+        /* FIFO replacement to cap guest allocations for handle-like imports. */
+        memmove(g_tiny_dbt_handle_cache_keys, g_tiny_dbt_handle_cache_keys + 1u,
+                (GUEST_HANDLE_CACHE_SLOTS - 1u) * sizeof(g_tiny_dbt_handle_cache_keys[0]));
+        memmove(g_tiny_dbt_handle_cache_ptrs, g_tiny_dbt_handle_cache_ptrs + 1u,
+                (GUEST_HANDLE_CACHE_SLOTS - 1u) * sizeof(g_tiny_dbt_handle_cache_ptrs[0]));
+        g_tiny_dbt_handle_cache_keys[GUEST_HANDLE_CACHE_SLOTS - 1u] = key;
+        g_tiny_dbt_handle_cache_ptrs[GUEST_HANDLE_CACHE_SLOTS - 1u] = ptr;
+    }
+    return ptr;
+}
+
+static uint64_t guest_gmtime_x0(CPUState *state) {
+    uint64_t arg = 0;
+    uint64_t raw = 0;
+    int64_t sec = 0;
+    time_t t = 0;
+    struct tm tm_val;
+
+    if (!state || !g_tiny_dbt_current_guest_mem) {
+        return 0;
+    }
+    arg = state->x[0];
+    sec = (int64_t)arg;
+    if (arg != 0 && guest_mem_range_valid(arg, sizeof(uint64_t))) {
+        memcpy(&raw, g_tiny_dbt_current_guest_mem + (size_t)arg, sizeof(raw));
+        sec = (int64_t)raw;
+    }
+    if (!guest_static_slot_ensure(state, &g_tiny_dbt_gmtime_tm_addr, (uint64_t)_Alignof(struct tm),
+                                  sizeof(struct tm))) {
+        return 0;
+    }
+    t = (time_t)sec;
+    memset(&tm_val, 0, sizeof(tm_val));
+    if (!gmtime_r(&t, &tm_val)) {
+        memset(&tm_val, 0, sizeof(tm_val));
+    }
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)g_tiny_dbt_gmtime_tm_addr, &tm_val, sizeof(tm_val));
+    return g_tiny_dbt_gmtime_tm_addr;
+}
+
+static uint64_t guest_ctime_x0(CPUState *state) {
+    uint64_t arg = 0;
+    uint64_t raw = 0;
+    int64_t sec = 0;
+    time_t t = 0;
+    char tmp[64];
+
+    if (!state || !g_tiny_dbt_current_guest_mem) {
+        return 0;
+    }
+    arg = state->x[0];
+    sec = (int64_t)arg;
+    if (arg != 0 && guest_mem_range_valid(arg, sizeof(uint64_t))) {
+        memcpy(&raw, g_tiny_dbt_current_guest_mem + (size_t)arg, sizeof(raw));
+        sec = (int64_t)raw;
+    }
+    if (!guest_static_slot_ensure(state, &g_tiny_dbt_ctime_buf_addr, 1, sizeof(tmp))) {
+        return 0;
+    }
+    t = (time_t)sec;
+    memset(tmp, 0, sizeof(tmp));
+    if (!ctime_r(&t, tmp)) {
+        (void)snprintf(tmp, sizeof(tmp), "%lld", (long long)sec);
+    }
+    tmp[sizeof(tmp) - 1u] = '\0';
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)g_tiny_dbt_ctime_buf_addr, tmp, sizeof(tmp));
+    return g_tiny_dbt_ctime_buf_addr;
+}
+
+static uint64_t guest_tzset_0(CPUState *state) {
+    long tz = 0;
+    int dl = 0;
+
+    if (!state || !g_tiny_dbt_current_guest_mem) {
+        return 0;
+    }
+    tzset();
+    tz = timezone;
+    dl = daylight;
+
+    if (!guest_static_slot_ensure(state, &g_tiny_dbt_timezone_slot_addr, sizeof(long), sizeof(long))) {
+        return 0;
+    }
+    if (!guest_static_slot_ensure(state, &g_tiny_dbt_daylight_slot_addr, sizeof(int), sizeof(int))) {
+        return 0;
+    }
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)g_tiny_dbt_timezone_slot_addr, &tz, sizeof(tz));
+    memcpy(g_tiny_dbt_current_guest_mem + (size_t)g_tiny_dbt_daylight_slot_addr, &dl, sizeof(dl));
+    return 0;
+}
+
+static uint64_t guest_daylight_ptr(CPUState *state) {
+    (void)guest_tzset_0(state);
+    return g_tiny_dbt_daylight_slot_addr ? g_tiny_dbt_daylight_slot_addr : (state ? state->sp : 0);
+}
+
+static uint64_t guest_timezone_ptr(CPUState *state) {
+    (void)guest_tzset_0(state);
+    return g_tiny_dbt_timezone_slot_addr ? g_tiny_dbt_timezone_slot_addr : (state ? state->sp : 0);
 }
 
 static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value) {
@@ -1747,6 +1968,18 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
         case IMPORT_CB_RET_NEG1_EINTR:
             guest_errno_write(state, EINTR);
             return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_EACCES:
+            guest_errno_write(state, EACCES);
+            return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_ENOENT:
+            guest_errno_write(state, ENOENT);
+            return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_EPERM:
+            guest_errno_write(state, EPERM);
+            return UINT64_MAX;
+        case IMPORT_CB_RET_NEG1_ETIMEDOUT:
+            guest_errno_write(state, ETIMEDOUT);
+            return UINT64_MAX;
         case IMPORT_CB_RET_X0:
             return state->x[0];
         case IMPORT_CB_RET_X1:
@@ -1773,6 +2006,8 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             return state->x[0] != 0 ? 1u : 0u;
         case IMPORT_CB_GUEST_ERRNO_PTR:
             return guest_errno_ptr(state);
+        case IMPORT_CB_GUEST_HANDLE_X0:
+            return guest_handle_x0(state);
         case IMPORT_CB_GUEST_ALLOC_X0: {
             uint64_t ptr = 0;
             uint64_t size = 0;
@@ -2270,6 +2505,117 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             double a = guest_fp_arg_f64(state, 0u);
             return guest_fp_ret_f64(state, tan(a));
         }
+        case IMPORT_CB_GUEST_EXP_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, exp(a));
+        }
+        case IMPORT_CB_GUEST_LOG_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, log(a));
+        }
+        case IMPORT_CB_GUEST_LOG10_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, log10(a));
+        }
+        case IMPORT_CB_GUEST_FLOOR_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, floor(a));
+        }
+        case IMPORT_CB_GUEST_CEIL_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, ceil(a));
+        }
+        case IMPORT_CB_GUEST_TRUNC_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, trunc(a));
+        }
+        case IMPORT_CB_GUEST_FMOD_X0_X1: {
+            double a = guest_fp_arg_f64(state, 0u);
+            double b = guest_fp_arg_f64(state, 1u);
+            return guest_fp_ret_f64(state, fmod(a, b));
+        }
+        case IMPORT_CB_GUEST_SIN_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, sin(a));
+        }
+        case IMPORT_CB_GUEST_SINH_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, sinh(a));
+        }
+        case IMPORT_CB_GUEST_TANH_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, tanh(a));
+        }
+        case IMPORT_CB_GUEST_ACOSF_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, acosf(a));
+        }
+        case IMPORT_CB_GUEST_ASINF_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, asinf(a));
+        }
+        case IMPORT_CB_GUEST_ATAN2F_X0_X1: {
+            float a = guest_fp_arg_f32(state, 0u);
+            float b = guest_fp_arg_f32(state, 1u);
+            return guest_fp_ret_f32(state, atan2f(a, b));
+        }
+        case IMPORT_CB_GUEST_EXPF_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, expf(a));
+        }
+        case IMPORT_CB_GUEST_LOGF_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, logf(a));
+        }
+        case IMPORT_CB_GUEST_FMODF_X0_X1: {
+            float a = guest_fp_arg_f32(state, 0u);
+            float b = guest_fp_arg_f32(state, 1u);
+            return guest_fp_ret_f32(state, fmodf(a, b));
+        }
+        case IMPORT_CB_GUEST_SINF_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, sinf(a));
+        }
+        case IMPORT_CB_GUEST_SINCOSF_X0_X1_X2: {
+            float a = guest_fp_arg_f32(state, 0u);
+            float s = sinf(a);
+            float c = cosf(a);
+            uint64_t sinp = state->x[1];
+            uint64_t cosp = state->x[2];
+            if (sinp != 0 && guest_mem_range_valid(sinp, sizeof(s))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)sinp, &s, sizeof(s));
+            }
+            if (cosp != 0 && guest_mem_range_valid(cosp, sizeof(c))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)cosp, &c, sizeof(c));
+            }
+            return 0;
+        }
+        case IMPORT_CB_GUEST_EXP2F_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, exp2f(a));
+        }
+        case IMPORT_CB_GUEST_LOG2F_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, log2f(a));
+        }
+        case IMPORT_CB_GUEST_LOG10F_X0: {
+            float a = guest_fp_arg_f32(state, 0u);
+            return guest_fp_ret_f32(state, log10f(a));
+        }
+        case IMPORT_CB_GUEST_LROUND_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return (uint64_t)lround(a);
+        }
+        case IMPORT_CB_GUEST_GMTIME_X0:
+            return guest_gmtime_x0(state);
+        case IMPORT_CB_GUEST_CTIME_X0:
+            return guest_ctime_x0(state);
+        case IMPORT_CB_GUEST_TZSET_0:
+            return guest_tzset_0(state);
+        case IMPORT_CB_GUEST_DAYLIGHT_PTR:
+            return guest_daylight_ptr(state);
+        case IMPORT_CB_GUEST_TIMEZONE_PTR:
+            return guest_timezone_ptr(state);
         case IMPORT_CB_GUEST_ISLOWER_X0: {
             int ch = (int)(state->x[0] & 0xFFu);
             return (uint64_t)(islower(ch) ? 1 : 0);

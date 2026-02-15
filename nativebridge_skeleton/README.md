@@ -11,6 +11,7 @@ make -C nativebridge_skeleton run-jni-probe
 ```
 
 `run-demo` loads the stub `.so`, fetches its callback table, then smoke-tests `load_library/get_trampoline` by resolving and invoking `cos` from `libm.so.6` (`cos(0) ~= 1`).
+When `TINY_NB_PROFILE_CALLBACKS`/`TINY_NB_PROFILE_STUBS` are set, it also validates those profile files and prints their entry counts.
 
 `run-jni-probe` links against the translator runtime object and executes a tiny JNI-style return probe (`RET` with preloaded `x0=JNI_VERSION_1_6`).
 

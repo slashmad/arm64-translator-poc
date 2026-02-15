@@ -12,6 +12,8 @@ EXIT_REASON_SUMMARY_FILE="$REPORT_DIR/kingshot_smoke_matrix_exit_reason_summary.
 ALL_PROFILE_SUMMARY="$REPORT_DIR/kingshot_all_import_profiles_summary.txt"
 SMOKE_MAX_RETRIES=${SMOKE_MAX_RETRIES:-}
 SMOKE_FAIL_ON_ERROR=${SMOKE_FAIL_ON_ERROR:-0}
+SMOKE_TIMEOUT_SEC=${SMOKE_TIMEOUT_SEC:-25}
+SMOKE_BLACKLIST_FILE=${SMOKE_BLACKLIST_FILE:-$ROOT_DIR/profiles/kingshot_smoke_blacklist.txt}
 PROFILE_MODE=${KSHOT_PROFILE_MODE:-relaxed}
 
 if [ ! -x "$ROOT_DIR/tiny_dbt" ]; then
@@ -67,6 +69,12 @@ if [ -n "$SMOKE_MAX_RETRIES" ]; then
         exit 1
     fi
 fi
+case "$SMOKE_TIMEOUT_SEC" in
+    ''|*[!0-9]*)
+        echo "SMOKE_TIMEOUT_SEC must be a non-negative integer" >&2
+        exit 1
+        ;;
+esac
 case "$SMOKE_FAIL_ON_ERROR" in
     0|1)
         ;;
@@ -75,6 +83,14 @@ case "$SMOKE_FAIL_ON_ERROR" in
         exit 1
         ;;
 esac
+
+SMOKE_TIMEOUT_BIN=
+if [ "$SMOKE_TIMEOUT_SEC" -gt 0 ] && command -v timeout >/dev/null 2>&1; then
+    SMOKE_TIMEOUT_BIN=$(command -v timeout)
+fi
+if [ "$SMOKE_TIMEOUT_SEC" -gt 0 ] && [ -z "$SMOKE_TIMEOUT_BIN" ]; then
+    echo "warning: 'timeout' command not found; SMOKE_TIMEOUT_SEC ignored" >&2
+fi
 
 if [ ! -f "$ALL_PROFILE_SUMMARY" ] || ! grep -q "^# Mode: $PROFILE_MODE$" "$ALL_PROFILE_SUMMARY"; then
     "$ROOT_DIR/scripts/generate_kingshot_all_import_profiles.sh" "$APK_PATH" "$PROFILE_MODE" >/dev/null
@@ -85,7 +101,22 @@ TMP_OUT=$(mktemp /tmp/kingshot_smoke_matrix_out.XXXXXX.txt)
 TMP_LIB=$(mktemp /tmp/kingshot_smoke_matrix_lib.XXXXXX.so)
 TMP_SYMS_ALL=$(mktemp /tmp/kingshot_smoke_matrix_syms_all.XXXXXX.txt)
 TMP_SYMS_PICK=$(mktemp /tmp/kingshot_smoke_matrix_syms_pick.XXXXXX.txt)
-trap 'rm -f "$TMP_LIBS" "$TMP_OUT" "$TMP_LIB" "$TMP_SYMS_ALL" "$TMP_SYMS_PICK"' EXIT INT TERM
+TMP_BLACKLIST=$(mktemp /tmp/kingshot_smoke_matrix_blacklist.XXXXXX.txt)
+trap 'rm -f "$TMP_LIBS" "$TMP_OUT" "$TMP_LIB" "$TMP_SYMS_ALL" "$TMP_SYMS_PICK" "$TMP_BLACKLIST"' EXIT INT TERM
+
+: > "$TMP_BLACKLIST"
+if [ -f "$SMOKE_BLACKLIST_FILE" ]; then
+    awk '
+        {
+            line = $0;
+            sub(/[[:space:]]*#.*$/, "", line);
+            gsub(/^[[:space:]]+|[[:space:]]+$/, "", line);
+            if (line != "") {
+                print line;
+            }
+        }
+    ' "$SMOKE_BLACKLIST_FILE" | sort -u > "$TMP_BLACKLIST"
+fi
 
 awk 'NF >= 3 && $1 ~ /^lib\/arm64-v8a\/.*\.so$/ {print $1, $3}' "$ALL_PROFILE_SUMMARY" \
     | sort -k2,2nr \
@@ -100,11 +131,12 @@ fi
 : > "$SUMMARY_FILE"
 echo "# Kingshot smoke matrix summary" >> "$SUMMARY_FILE"
 echo "# APK: $APK_PATH" >> "$SUMMARY_FILE"
-echo "# Params: mode=$PROFILE_MODE max_libs=$MAX_LIBS syms_per_lib=$SYMS_PER_LIB attempts=$ATTEMPTS smoke_max_retries=${SMOKE_MAX_RETRIES:-auto} smoke_fail_on_error=$SMOKE_FAIL_ON_ERROR" >> "$SUMMARY_FILE"
+echo "# Params: mode=$PROFILE_MODE max_libs=$MAX_LIBS syms_per_lib=$SYMS_PER_LIB attempts=$ATTEMPTS smoke_max_retries=${SMOKE_MAX_RETRIES:-auto} smoke_fail_on_error=$SMOKE_FAIL_ON_ERROR smoke_timeout_sec=$SMOKE_TIMEOUT_SEC smoke_blacklist_file=$SMOKE_BLACKLIST_FILE" >> "$SUMMARY_FILE"
 echo "# Columns: status lib symbol attempts tiny_rc exit_reason trace_lines unsupported_lines log_file" >> "$SUMMARY_FILE"
 
 ok_count=0
 fail_count=0
+skip_count=0
 run_count=0
 
 extract_symbols() {
@@ -137,10 +169,30 @@ extract_symbols() {
     [ -s "$TMP_SYMS_PICK" ]
 }
 
+is_blacklisted() {
+    lib_entry=$1
+    symbol=$2
+    if [ ! -s "$TMP_BLACKLIST" ]; then
+        return 1
+    fi
+    if grep -Fqx "$lib_entry" "$TMP_BLACKLIST"; then
+        return 0
+    fi
+    if [ -n "$symbol" ] && grep -Fqx "$lib_entry:$symbol" "$TMP_BLACKLIST"; then
+        return 0
+    fi
+    return 1
+}
+
 while IFS= read -r LIB_ENTRY; do
     [ -z "$LIB_ENTRY" ] && continue
     LIB_BASENAME=$(basename "$LIB_ENTRY")
     LIB_NAME=${LIB_BASENAME%.so}
+    if is_blacklisted "$LIB_ENTRY" ""; then
+        printf 'skip %s - 0 0 blacklist - - -\n' "$LIB_ENTRY" >> "$SUMMARY_FILE"
+        skip_count=$((skip_count + 1))
+        continue
+    fi
     if ! extract_symbols "$LIB_ENTRY" "$SYMS_PER_LIB"; then
         printf 'skip %s - 0 1 - - - %s\n' "$LIB_ENTRY" "$REPORT_DIR/kingshot_smoke_${LIB_NAME}_extract.log" >> "$SUMMARY_FILE"
         fail_count=$((fail_count + 1))
@@ -149,6 +201,11 @@ while IFS= read -r LIB_ENTRY; do
 
     while IFS= read -r SYMBOL; do
         [ -z "$SYMBOL" ] && continue
+        if is_blacklisted "$LIB_ENTRY" "$SYMBOL"; then
+            printf 'skip %s %s 0 0 blacklist - - -\n' "$LIB_ENTRY" "$SYMBOL" >> "$SUMMARY_FILE"
+            skip_count=$((skip_count + 1))
+            continue
+        fi
         run_count=$((run_count + 1))
         SYMBOL_TAG=$(printf '%s' "$SYMBOL" | tr -c '[:alnum:]_-' '_')
         LOG_FILE="$REPORT_DIR/kingshot_smoke_${LIB_NAME}_${SYMBOL_TAG}.log"
@@ -161,12 +218,22 @@ while IFS= read -r LIB_ENTRY; do
         while [ "$attempt" -le "$ATTEMPTS" ]; do
             attempts_used=$attempt
             set +e
-            if [ -n "$SMOKE_MAX_RETRIES" ]; then
-                "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" "$SMOKE_MAX_RETRIES" > "$TMP_OUT" 2>&1
-                tiny_rc=$?
+            if [ -n "$SMOKE_TIMEOUT_BIN" ]; then
+                if [ -n "$SMOKE_MAX_RETRIES" ]; then
+                    "$SMOKE_TIMEOUT_BIN" "$SMOKE_TIMEOUT_SEC" "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" "$SMOKE_MAX_RETRIES" > "$TMP_OUT" 2>&1
+                    tiny_rc=$?
+                else
+                    "$SMOKE_TIMEOUT_BIN" "$SMOKE_TIMEOUT_SEC" "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" > "$TMP_OUT" 2>&1
+                    tiny_rc=$?
+                fi
             else
-                "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" > "$TMP_OUT" 2>&1
-                tiny_rc=$?
+                if [ -n "$SMOKE_MAX_RETRIES" ]; then
+                    "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" "$SMOKE_MAX_RETRIES" > "$TMP_OUT" 2>&1
+                    tiny_rc=$?
+                else
+                    "$ROOT_DIR/scripts/run_kingshot_smoke.sh" "$APK_PATH" "$LIB_ENTRY" "$SYMBOL" > "$TMP_OUT" 2>&1
+                    tiny_rc=$?
+                fi
             fi
             set -e
             {
@@ -191,6 +258,9 @@ while IFS= read -r LIB_ENTRY; do
         unsupported_lines=$(sed -n 's/^  unsupported:.*(\([0-9][0-9]*\) lines).*/\1/p' "$TMP_OUT" | head -n 1)
 
         [ -z "$symbol" ] && symbol="$SYMBOL"
+        if [ -z "$exit_reason" ] && [ "$tiny_rc" -eq 124 ]; then
+            exit_reason="timeout"
+        fi
         [ -z "$exit_reason" ] && exit_reason="-"
         [ -z "$trace_lines" ] && trace_lines="-"
         [ -z "$unsupported_lines" ] && unsupported_lines="-"
@@ -211,6 +281,7 @@ echo "Kingshot smoke matrix completed:"
 echo "  runs:    $run_count"
 echo "  ok:      $ok_count"
 echo "  fail:    $fail_count"
+echo "  skip:    $skip_count"
 echo "  summary: $SUMMARY_FILE"
 echo "  reasons: $EXIT_REASON_SUMMARY_FILE"
 

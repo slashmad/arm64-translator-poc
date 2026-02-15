@@ -37,9 +37,9 @@ KSHOT_PROFILE_MODE ?= relaxed
 .PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-retneg1-example run-import-callback-strtoul-example run-import-callback-posix-memalign-example run-import-callback-posix-memalign-einval-example run-import-callback-basename-example run-import-callback-strdup-example run-import-callback-strtof-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-vsnprintf-example run-import-callback-vsnprintf-chk-example run-import-callback-vfprintf-example run-import-callback-vasprintf-example run-import-callback-vsscanf-example run-import-callback-snprintf-inf-example run-import-callback-snprintf-trunc-edge-example run-import-callback-strtod-example run-import-callback-strtod-nan-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-import-callback-sscanf-scanset-invert-example run-kingshot-import-profile run-kingshot-import-profile-all run-kingshot-smoke run-kingshot-smoke-matrix run-nativebridge-skeleton-build run-nativebridge-skeleton-demo
 .PHONY: run-kingshot-import-profile-strict run-kingshot-import-profile-all-strict run-kingshot-coverage-gate verify-kingshot run-nativebridge-skeleton-jni-probe run-kingshot-smoke-matrix-ci
 .PHONY: run-kingshot-import-profile-compat run-kingshot-import-profile-all-compat verify-kingshot-ci
-.PHONY: run-import-callback-pow-example run-import-callback-sqrt-example run-import-callback-cos-example run-import-callback-tan-example
+.PHONY: run-import-callback-pow-example run-import-callback-sqrt-example run-import-callback-cos-example run-import-callback-tan-example run-import-callback-exp-example run-import-callback-log-example run-import-callback-log10-example run-import-callback-floor-example run-import-callback-ceil-example run-import-callback-trunc-example run-import-callback-fmod-example run-import-callback-sin-example run-import-callback-sinh-example run-import-callback-tanh-example run-import-callback-sinf-example run-import-callback-sincosf-example run-import-callback-exp2f-example run-import-callback-log2f-example run-import-callback-log10f-example run-import-callback-lround-example
 .PHONY: run-import-callback-islower-example run-import-callback-isspace-example run-import-callback-isxdigit-example run-import-callback-isupper-example run-import-callback-toupper-example run-import-callback-tolower-example
-.PHONY: run-import-callback-retneg1-enosys-example run-import-callback-retneg1-eagain-example run-import-callback-retneg1-eintr-example run-import-callback-errno-slot-example
+.PHONY: run-import-callback-retneg1-enosys-example run-import-callback-retneg1-eagain-example run-import-callback-retneg1-eintr-example run-import-callback-retneg1-eacces-example run-import-callback-retneg1-enoent-example run-import-callback-retneg1-eperm-example run-import-callback-retneg1-etimedout-example run-import-callback-errno-slot-example run-import-callback-handle-example run-import-callback-ctime-example run-import-callback-gmtime-example run-import-callback-daylight-example run-import-callback-timezone-example
 
 all: tiny_dbt
 
@@ -813,8 +813,35 @@ run-import-callback-retneg1-eagain-example: tiny_dbt
 run-import-callback-retneg1-eintr-example: tiny_dbt
 	./tiny_dbt D454AFC0 D65F03C0
 
+run-import-callback-retneg1-eacces-example: tiny_dbt
+	./tiny_dbt D454B180 D65F03C0
+
+run-import-callback-retneg1-enoent-example: tiny_dbt
+	./tiny_dbt D454B1A0 D65F03C0
+
+run-import-callback-retneg1-eperm-example: tiny_dbt
+	./tiny_dbt D454B1C0 D65F03C0
+
+run-import-callback-retneg1-etimedout-example: tiny_dbt
+	./tiny_dbt D454B1E0 D65F03C0
+
 run-import-callback-errno-slot-example: tiny_dbt
 	./tiny_dbt D454AFE0 AA0003E1 D454AF80 F9400020 D65F03C0
+
+run-import-callback-handle-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x1234 D454B000 D65F03C0
+
+run-import-callback-gmtime-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0 D454B0E0 D65F03C0
+
+run-import-callback-ctime-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0 D454B100 D65F03C0
+
+run-import-callback-daylight-example: tiny_dbt
+	./tiny_dbt D454B140 D65F03C0
+
+run-import-callback-timezone-example: tiny_dbt
+	./tiny_dbt D454B160 D65F03C0
 
 run-import-callback-strtoul-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x100 --set-reg x2=10 --mem-write 0x20:3432393439363732393561626300 --mem-read 0x100:8 D454ADA0 D65F03C0
@@ -845,6 +872,54 @@ run-import-callback-cos-example: tiny_dbt
 
 run-import-callback-tan-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x0 D454AEA0 D65F03C0
+
+run-import-callback-exp-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454B200 D65F03C0
+
+run-import-callback-log-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x3FF0000000000000 D454B220 D65F03C0
+
+run-import-callback-log10-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x4024000000000000 D454B240 D65F03C0
+
+run-import-callback-floor-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x400E000000000000 D454B260 D65F03C0
+
+run-import-callback-ceil-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x400A000000000000 D454B280 D65F03C0
+
+run-import-callback-trunc-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0xC00E000000000000 D454B2A0 D65F03C0
+
+run-import-callback-fmod-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x4016000000000000 --set-reg x1=0x4000000000000000 D454B2C0 D65F03C0
+
+run-import-callback-sin-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454B2E0 D65F03C0
+
+run-import-callback-sinh-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454B300 D65F03C0
+
+run-import-callback-tanh-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454B320 D65F03C0
+
+run-import-callback-sinf-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x3FC90FDB D454B340 D65F03C0
+
+run-import-callback-sincosf-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x3FC90FDB --set-reg x1=0x120 --set-reg x2=0x124 --mem-read 0x120:8 D454B360 D65F03C0
+
+run-import-callback-exp2f-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40000000 D454B380 D65F03C0
+
+run-import-callback-log2f-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x40800000 D454B3A0 D65F03C0
+
+run-import-callback-log10f-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x41200000 D454B3C0 D65F03C0
+
+run-import-callback-lround-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x400B333333333333 D454B3E0 D65F03C0
 
 run-import-callback-islower-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x61 D454AEC0 D65F03C0
@@ -955,6 +1030,9 @@ run-nativebridge-skeleton-build:
 	$(MAKE) -C nativebridge_skeleton
 
 run-nativebridge-skeleton-demo:
+	$(MAKE) run-kingshot-import-profile
+	TINY_NB_PROFILE_CALLBACKS=$(CURDIR)/profiles/kingshot_libmain_import_callbacks.txt \
+	TINY_NB_PROFILE_STUBS=$(CURDIR)/profiles/kingshot_libmain_import_stubs.txt \
 	$(MAKE) -C nativebridge_skeleton run-demo
 
 run-nativebridge-skeleton-jni-probe:
@@ -968,7 +1046,16 @@ verify-kingshot: tiny_dbt
 	$(MAKE) run-import-callback-retneg1-enosys-example
 	$(MAKE) run-import-callback-retneg1-eagain-example
 	$(MAKE) run-import-callback-retneg1-eintr-example
+	$(MAKE) run-import-callback-retneg1-eacces-example
+	$(MAKE) run-import-callback-retneg1-enoent-example
+	$(MAKE) run-import-callback-retneg1-eperm-example
+	$(MAKE) run-import-callback-retneg1-etimedout-example
 	$(MAKE) run-import-callback-errno-slot-example
+	$(MAKE) run-import-callback-handle-example
+	$(MAKE) run-import-callback-gmtime-example
+	$(MAKE) run-import-callback-ctime-example
+	$(MAKE) run-import-callback-daylight-example
+	$(MAKE) run-import-callback-timezone-example
 	$(MAKE) run-import-callback-basename-example
 	$(MAKE) run-import-callback-strdup-example
 	$(MAKE) run-import-callback-strtof-example
@@ -976,6 +1063,22 @@ verify-kingshot: tiny_dbt
 	$(MAKE) run-import-callback-sqrt-example
 	$(MAKE) run-import-callback-cos-example
 	$(MAKE) run-import-callback-tan-example
+	$(MAKE) run-import-callback-exp-example
+	$(MAKE) run-import-callback-log-example
+	$(MAKE) run-import-callback-log10-example
+	$(MAKE) run-import-callback-floor-example
+	$(MAKE) run-import-callback-ceil-example
+	$(MAKE) run-import-callback-trunc-example
+	$(MAKE) run-import-callback-fmod-example
+	$(MAKE) run-import-callback-sin-example
+	$(MAKE) run-import-callback-sinh-example
+	$(MAKE) run-import-callback-tanh-example
+	$(MAKE) run-import-callback-sinf-example
+	$(MAKE) run-import-callback-sincosf-example
+	$(MAKE) run-import-callback-exp2f-example
+	$(MAKE) run-import-callback-log2f-example
+	$(MAKE) run-import-callback-log10f-example
+	$(MAKE) run-import-callback-lround-example
 	$(MAKE) run-import-callback-islower-example
 	$(MAKE) run-import-callback-isspace-example
 	$(MAKE) run-import-callback-isxdigit-example

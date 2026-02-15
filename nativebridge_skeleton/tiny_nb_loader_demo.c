@@ -3,12 +3,42 @@
 #include <dlfcn.h>
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 typedef const TinyNativeBridgeCallbacks *(*GetCallbacksFn)(void);
 typedef double (*CosFn)(double);
 
+static size_t count_profile_specs(const char *path) {
+    FILE *f = NULL;
+    char line[512];
+    size_t count = 0;
+
+    if (!path || path[0] == '\0') {
+        return 0;
+    }
+    f = fopen(path, "r");
+    if (!f) {
+        return 0;
+    }
+    while (fgets(line, sizeof(line), f)) {
+        size_t i = 0;
+        while (line[i] == ' ' || line[i] == '\t') {
+            i++;
+        }
+        if (line[i] == '\0' || line[i] == '\n' || line[i] == '#') {
+            continue;
+        }
+        count++;
+    }
+    fclose(f);
+    return count;
+}
+
 int main(int argc, char **argv) {
     const char *bridge_path = "./libtiny_nativebridge_stub.so";
+    const char *cb_profile = getenv("TINY_NB_PROFILE_CALLBACKS");
+    const char *stub_profile = getenv("TINY_NB_PROFILE_STUBS");
     void *bridge_handle = NULL;
     void *libm_handle = NULL;
     void *cos_sym = NULL;
@@ -18,6 +48,18 @@ int main(int argc, char **argv) {
 
     if (argc > 1) {
         bridge_path = argv[1];
+    }
+    if (cb_profile && cb_profile[0] != '\0') {
+        size_t cb_count = count_profile_specs(cb_profile);
+        if (cb_count == 0) {
+            fprintf(stderr, "Profile callbacks missing/empty: %s\n", cb_profile);
+            return 1;
+        }
+        printf("Profile callbacks: %s (%zu entries)\n", cb_profile, cb_count);
+    }
+    if (stub_profile && stub_profile[0] != '\0') {
+        size_t stub_count = count_profile_specs(stub_profile);
+        printf("Profile stubs: %s (%zu entries)\n", stub_profile, stub_count);
     }
 
     bridge_handle = dlopen(bridge_path, RTLD_NOW | RTLD_LOCAL);

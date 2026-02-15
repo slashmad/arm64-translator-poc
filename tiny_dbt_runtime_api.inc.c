@@ -410,8 +410,24 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
 
     uint8_t *prev_guest_mem = g_tiny_dbt_current_guest_mem;
     uint64_t prev_errno_slot_addr = g_tiny_dbt_errno_slot_addr;
+    uint64_t prev_daylight_slot_addr = g_tiny_dbt_daylight_slot_addr;
+    uint64_t prev_timezone_slot_addr = g_tiny_dbt_timezone_slot_addr;
+    uint64_t prev_ctime_buf_addr = g_tiny_dbt_ctime_buf_addr;
+    uint64_t prev_gmtime_tm_addr = g_tiny_dbt_gmtime_tm_addr;
+    size_t prev_handle_cache_len = g_tiny_dbt_handle_cache_len;
+    uint64_t prev_handle_cache_keys[GUEST_HANDLE_CACHE_SLOTS];
+    uint64_t prev_handle_cache_ptrs[GUEST_HANDLE_CACHE_SLOTS];
+    memcpy(prev_handle_cache_keys, g_tiny_dbt_handle_cache_keys, sizeof(prev_handle_cache_keys));
+    memcpy(prev_handle_cache_ptrs, g_tiny_dbt_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
     g_tiny_dbt_current_guest_mem = dbt->guest_mem;
     g_tiny_dbt_errno_slot_addr = 0;
+    g_tiny_dbt_daylight_slot_addr = 0;
+    g_tiny_dbt_timezone_slot_addr = 0;
+    g_tiny_dbt_ctime_buf_addr = 0;
+    g_tiny_dbt_gmtime_tm_addr = 0;
+    g_tiny_dbt_handle_cache_len = 0;
+    memset(g_tiny_dbt_handle_cache_keys, 0, sizeof(g_tiny_dbt_handle_cache_keys));
+    memset(g_tiny_dbt_handle_cache_ptrs, 0, sizeof(g_tiny_dbt_handle_cache_ptrs));
 
     typedef uint64_t (*JitFn)(CPUState *);
     JitFn fn = (JitFn)dbt->mem;
@@ -452,6 +468,13 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
         }
         g_tiny_dbt_current_guest_mem = prev_guest_mem;
         g_tiny_dbt_errno_slot_addr = prev_errno_slot_addr;
+        g_tiny_dbt_daylight_slot_addr = prev_daylight_slot_addr;
+        g_tiny_dbt_timezone_slot_addr = prev_timezone_slot_addr;
+        g_tiny_dbt_ctime_buf_addr = prev_ctime_buf_addr;
+        g_tiny_dbt_gmtime_tm_addr = prev_gmtime_tm_addr;
+        g_tiny_dbt_handle_cache_len = prev_handle_cache_len;
+        memcpy(g_tiny_dbt_handle_cache_keys, prev_handle_cache_keys, sizeof(prev_handle_cache_keys));
+        memcpy(g_tiny_dbt_handle_cache_ptrs, prev_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
         return false;
     }
     state->nzcv = rflags_to_nzcv(state->rflags);
@@ -465,6 +488,13 @@ static bool tiny_dbt_run_internal(TinyDbt *dbt, CPUState *state, const TinyDbtRu
     }
     g_tiny_dbt_current_guest_mem = prev_guest_mem;
     g_tiny_dbt_errno_slot_addr = prev_errno_slot_addr;
+    g_tiny_dbt_daylight_slot_addr = prev_daylight_slot_addr;
+    g_tiny_dbt_timezone_slot_addr = prev_timezone_slot_addr;
+    g_tiny_dbt_ctime_buf_addr = prev_ctime_buf_addr;
+    g_tiny_dbt_gmtime_tm_addr = prev_gmtime_tm_addr;
+    g_tiny_dbt_handle_cache_len = prev_handle_cache_len;
+    memcpy(g_tiny_dbt_handle_cache_keys, prev_handle_cache_keys, sizeof(prev_handle_cache_keys));
+    memcpy(g_tiny_dbt_handle_cache_ptrs, prev_handle_cache_ptrs, sizeof(prev_handle_cache_ptrs));
     return true;
 }
 

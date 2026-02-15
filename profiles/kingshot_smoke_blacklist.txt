@@ -1,0 +1,2 @@
+# Known long-running/non-returning symbols for smoke matrix.
+lib/arm64-v8a/libcrashlytics-trampoline.so:_start

@@ -13,6 +13,7 @@ REJECTED_ALL_FILE="$REPORT_DIR/kingshot_all_rejected_import_symbols.txt"
 REJECTED_TOP_FILE="$REPORT_DIR/kingshot_all_rejected_top_symbols.txt"
 COVERAGE_FILE="$REPORT_DIR/kingshot_all_import_coverage.txt"
 NEXT_CALLBACKS_FILE="$REPORT_DIR/kingshot_next_callbacks.txt"
+SMOKE_SUMMARY_FILE="$REPORT_DIR/kingshot_smoke_matrix_summary.txt"
 
 count_nonempty() {
     if [ ! -f "$1" ]; then
@@ -51,7 +52,9 @@ mkdir -p "$PROFILE_DIR" "$REPORT_DIR"
 
 TMP_LIB_LIST=$(mktemp /tmp/kingshot_lib_list.XXXXXX.txt)
 TMP_WEIGHTS=$(mktemp /tmp/kingshot_weights.XXXXXX.txt)
-trap 'rm -f "$TMP_LIB_LIST" "$TMP_WEIGHTS"' EXIT INT TERM
+TMP_BASE_WEIGHTS=$(mktemp /tmp/kingshot_base_weights.XXXXXX.txt)
+TMP_EXEC_WEIGHTS=$(mktemp /tmp/kingshot_exec_weights.XXXXXX.txt)
+trap 'rm -f "$TMP_LIB_LIST" "$TMP_WEIGHTS" "$TMP_BASE_WEIGHTS" "$TMP_EXEC_WEIGHTS"' EXIT INT TERM
 
 unzip -Z1 "$APK_PATH" | awk '/^lib\/arm64-v8a\/.*\.so$/ {print}' | sort -u > "$TMP_LIB_LIST"
 if [ ! -s "$TMP_LIB_LIST" ]; then
@@ -147,11 +150,41 @@ else
     echo "# no rejected symbols" > "$REJECTED_TOP_FILE"
 fi
 
-awk 'NF >= 3 && $1 ~ /^lib\/arm64-v8a\/.*\.so$/ {print $1, $3}' "$SUMMARY_FILE" > "$TMP_WEIGHTS"
+awk 'NF >= 3 && $1 ~ /^lib\/arm64-v8a\/.*\.so$/ {print $1, $3}' "$SUMMARY_FILE" > "$TMP_BASE_WEIGHTS"
+: > "$TMP_EXEC_WEIGHTS"
+if [ -f "$SMOKE_SUMMARY_FILE" ]; then
+    awk '
+        NF >= 9 && $1 == "ok" && $2 ~ /^lib\/arm64-v8a\/.*\.so$/ {
+            tl = $7 + 0;
+            if (tl < 1) {
+                tl = 1;
+            }
+            w[$2] += tl;
+        }
+        END {
+            for (lib in w) {
+                print lib, w[lib];
+            }
+        }
+    ' "$SMOKE_SUMMARY_FILE" > "$TMP_EXEC_WEIGHTS"
+fi
+awk '
+    NR == FNR {
+        exec_w[$1] = $2 + 0;
+        next;
+    }
+    {
+        lib = $1;
+        base = $2 + 0;
+        bonus = exec_w[lib] + 0;
+        print lib, base, bonus;
+    }
+' "$TMP_EXEC_WEIGHTS" "$TMP_BASE_WEIGHTS" > "$TMP_WEIGHTS"
 if [ -s "$UNMAPPED_ALL_FILE" ] && ! grep -q '^# all imports mapped$' "$UNMAPPED_ALL_FILE"; then
     awk -F: '
         NR == FNR {
-            weights[$1] = $2 + 0;
+            base_weight[$1] = $2 + 0;
+            exec_bonus[$1] = $3 + 0;
             next;
         }
         {
@@ -160,7 +193,11 @@ if [ -s "$UNMAPPED_ALL_FILE" ] && ! grep -q '^# all imports mapped$' "$UNMAPPED_
             if (sym == "" || sym ~ /^#/) {
                 next;
             }
-            score[sym] += (weights[lib] > 0 ? weights[lib] : 1);
+            w = (base_weight[lib] > 0 ? base_weight[lib] : 1);
+            if (exec_bonus[lib] > 0) {
+                w += (exec_bonus[lib] * 10);
+            }
+            score[sym] += w;
             freq[sym] += 1;
         }
         END {

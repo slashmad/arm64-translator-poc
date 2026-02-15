@@ -62,6 +62,7 @@ Run from ELF symbol:
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
 - `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_0`, `ret_1`, `ret_neg1`, `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_strtoul_x0_x1_x2`, `guest_posix_memalign_x0_x1_x2`, `guest_basename_x0`, `guest_strdup_x0`, `guest_strtof_x0_x1`, `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, `guest_tan_x0`, `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, `guest_tolower_x0`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`, `guest_vsnprintf_x0_x1_x2_x3`, `guest_vsscanf_x0_x1_x2`, `guest_vsnprintf_chk_x0_x1_x4_x5`, `guest_vfprintf_x0_x1_x2`, `guest_vasprintf_x0_x1_x2`).
+  - Includes extended math/time/errno ops such as `guest_exp_x0`, `guest_log_x0`, `guest_sin_x0`, `guest_sincosf_x0_x1_x2`, `guest_gmtime_x0`, `guest_ctime_x0`, `guest_tzset_0`, and `ret_neg1_eacces/enoent/eperm/etimedout`.
 - `--elf-import-preset <name>`: apply built-in callback sets (`libc-basic`, `android-basic`, `android-compat`).
 - `--elf-import-trace <path>`: append per-symbol import patch details for ELF branch rewrites.
 - `--set-reg <name=value>`: initialize registers/state, including `heap_base`, `heap_brk`, `heap_last_ptr`, `heap_last_size`.
@@ -77,6 +78,8 @@ Environment alternatives:
 - `TINY_DBT_INVALIDATE_ALL_SLOTS`
 - `TINY_DBT_INVALIDATE_PC_INDEXES`
 - `SMOKE_FAIL_ON_ERROR` (for `scripts/run_kingshot_smoke_matrix.sh`)
+- `SMOKE_TIMEOUT_SEC` (per-run timeout in `run_kingshot_smoke_matrix.sh`)
+- `SMOKE_BLACKLIST_FILE` (skip problematic `lib` or `lib:symbol` rows in smoke matrix)
 - `KSHOT_PROFILE_MODE` (`relaxed`, `strict`, `compat`) for smoke/profile scripts
 
 ## Runtime Notes
@@ -104,9 +107,11 @@ Environment alternatives:
 - `guest_vasprintf_x0_x1_x2` allocates from guest heap, writes pointer to `*x0`, and returns formatted length (or `-1` on failure).
 - `guest_strtoul_x0_x1_x2` and `guest_posix_memalign_x0_x1_x2` provide minimal unsigned parse and aligned guest-heap allocation hooks.
 - `guest_basename_x0`, `guest_strdup_x0`, and `guest_strtof_x0_x1` provide minimal path, duplicate-string, and float parse hooks.
-- `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, and `guest_tan_x0` provide scalar FP math hooks.
+- `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, `guest_tan_x0`, `guest_exp_x0`, `guest_log_x0`, `guest_log10_x0`, `guest_floor_x0`, `guest_ceil_x0`, `guest_trunc_x0`, `guest_fmod_x0_x1`, `guest_sin_x0`, `guest_sinh_x0`, `guest_tanh_x0`, `guest_sinf_x0`, `guest_sincosf_x0_x1_x2`, `guest_exp2f_x0`, `guest_log2f_x0`, `guest_log10f_x0`, and `guest_lround_x0` provide scalar FP math hooks.
 - `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, and `guest_tolower_x0` provide ctype hooks.
-- `guest_errno_ptr` returns a guest-memory errno slot, while `ret_neg1_enosys`, `ret_neg1_eagain`, and `ret_neg1_eintr` return `-1` and set that errno slot.
+- `guest_errno_ptr` returns a guest-memory errno slot, while `ret_neg1_enosys`, `ret_neg1_eagain`, `ret_neg1_eintr`, `ret_neg1_eacces`, `ret_neg1_enoent`, `ret_neg1_eperm`, and `ret_neg1_etimedout` return `-1` and set that errno slot.
+- `guest_handle_x0` now uses a bounded per-run handle cache to keep repeated handle-like imports stable without unbounded guest allocations.
+- `guest_gmtime_x0`, `guest_ctime_x0`, `guest_tzset_0`, `guest_daylight_ptr`, and `guest_timezone_ptr` expose basic time/tz hooks via guest-memory slots.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
 - `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%f/%e/%g/%c/%s/%[` and `%n` with output pointers in `x2..x7` and then guest stack.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
@@ -278,11 +283,19 @@ Fail the script with non-zero exit if any row fails:
 SMOKE_FAIL_ON_ERROR=1 ./scripts/run_kingshot_smoke_matrix.sh
 ```
 
+Set timeout/blacklist behavior (defaults: `SMOKE_TIMEOUT_SEC=25`, blacklist file `profiles/kingshot_smoke_blacklist.txt`):
+
+```sh
+SMOKE_TIMEOUT_SEC=20 SMOKE_BLACKLIST_FILE=profiles/kingshot_smoke_blacklist.txt ./scripts/run_kingshot_smoke_matrix.sh
+```
+
 Run an end-to-end verification bundle:
 
 ```sh
 make verify-kingshot
 ```
+
+Current Kingshot relaxed-profile coverage is `100.00%` mapped imports (`reports/kingshot_all_import_coverage.txt`).
 
 Default `libmain` profile output:
 
@@ -303,6 +316,7 @@ All-lib profile output also includes:
 - `reports/kingshot_all_import_coverage.txt`
 - `reports/kingshot_smoke_matrix_summary.txt`
 - `reports/kingshot_smoke_matrix_exit_reason_summary.txt`
+- `reports/kingshot_e2e_demo_output.txt` (example real-lib smoke output)
 
 You can override the APK path used by `make` targets with:
 
@@ -321,7 +335,7 @@ make run-nativebridge-skeleton-demo
 make run-nativebridge-skeleton-jni-probe
 ```
 
-`run-nativebridge-skeleton-demo` now resolves and invokes a trampoline (`cos(0)`) through the callback table, while `run-nativebridge-skeleton-jni-probe` validates JNI-style runtime wiring.
+`run-nativebridge-skeleton-demo` now auto-generates a Kingshot `libmain` profile first and passes profile callback/stub files into the loader demo, then resolves and invokes a trampoline (`cos(0)`) through the callback table. `run-nativebridge-skeleton-jni-probe` validates JNI-style runtime wiring.
 
 Skeleton files live under `nativebridge_skeleton/` and are intentionally minimal.
 

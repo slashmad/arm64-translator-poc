@@ -96,7 +96,39 @@ enum {
     IMPORT_CB_RET_NEG1_ENOSYS = 0x7C,
     IMPORT_CB_RET_NEG1_EAGAIN = 0x7D,
     IMPORT_CB_RET_NEG1_EINTR = 0x7E,
-    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F
+    IMPORT_CB_GUEST_ERRNO_PTR = 0x7F,
+    IMPORT_CB_GUEST_HANDLE_X0 = 0x80,
+    IMPORT_CB_GUEST_ACOSF_X0 = 0x81,
+    IMPORT_CB_GUEST_ASINF_X0 = 0x82,
+    IMPORT_CB_GUEST_ATAN2F_X0_X1 = 0x83,
+    IMPORT_CB_GUEST_EXPF_X0 = 0x84,
+    IMPORT_CB_GUEST_LOGF_X0 = 0x85,
+    IMPORT_CB_GUEST_FMODF_X0_X1 = 0x86,
+    IMPORT_CB_GUEST_GMTIME_X0 = 0x87,
+    IMPORT_CB_GUEST_CTIME_X0 = 0x88,
+    IMPORT_CB_GUEST_TZSET_0 = 0x89,
+    IMPORT_CB_GUEST_DAYLIGHT_PTR = 0x8A,
+    IMPORT_CB_GUEST_TIMEZONE_PTR = 0x8B,
+    IMPORT_CB_RET_NEG1_EACCES = 0x8C,
+    IMPORT_CB_RET_NEG1_ENOENT = 0x8D,
+    IMPORT_CB_RET_NEG1_EPERM = 0x8E,
+    IMPORT_CB_RET_NEG1_ETIMEDOUT = 0x8F,
+    IMPORT_CB_GUEST_EXP_X0 = 0x90,
+    IMPORT_CB_GUEST_LOG_X0 = 0x91,
+    IMPORT_CB_GUEST_LOG10_X0 = 0x92,
+    IMPORT_CB_GUEST_FLOOR_X0 = 0x93,
+    IMPORT_CB_GUEST_CEIL_X0 = 0x94,
+    IMPORT_CB_GUEST_TRUNC_X0 = 0x95,
+    IMPORT_CB_GUEST_FMOD_X0_X1 = 0x96,
+    IMPORT_CB_GUEST_SIN_X0 = 0x97,
+    IMPORT_CB_GUEST_SINH_X0 = 0x98,
+    IMPORT_CB_GUEST_TANH_X0 = 0x99,
+    IMPORT_CB_GUEST_SINF_X0 = 0x9A,
+    IMPORT_CB_GUEST_SINCOSF_X0_X1_X2 = 0x9B,
+    IMPORT_CB_GUEST_EXP2F_X0 = 0x9C,
+    IMPORT_CB_GUEST_LOG2F_X0 = 0x9D,
+    IMPORT_CB_GUEST_LOG10F_X0 = 0x9E,
+    IMPORT_CB_GUEST_LROUND_X0 = 0x9F
 };
 
 typedef struct {
@@ -233,6 +265,22 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_RET_NEG1_EINTR;
         return true;
     }
+    if (strcmp(kind, "ret_neg1_eacces") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_EACCES;
+        return true;
+    }
+    if (strcmp(kind, "ret_neg1_enoent") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_ENOENT;
+        return true;
+    }
+    if (strcmp(kind, "ret_neg1_eperm") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_EPERM;
+        return true;
+    }
+    if (strcmp(kind, "ret_neg1_etimedout") == 0) {
+        *out_callback_id = IMPORT_CB_RET_NEG1_ETIMEDOUT;
+        return true;
+    }
     if (strcmp(kind, "sub_x0_x1") == 0) {
         *out_callback_id = IMPORT_CB_SUB_X0_X1;
         return true;
@@ -247,6 +295,10 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
     }
     if (strcmp(kind, "guest_errno_ptr") == 0) {
         *out_callback_id = IMPORT_CB_GUEST_ERRNO_PTR;
+        return true;
+    }
+    if (strcmp(kind, "guest_handle_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_HANDLE_X0;
         return true;
     }
     if (strcmp(kind, "guest_alloc_x0") == 0) {
@@ -425,6 +477,114 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_TOLOWER_X0;
         return true;
     }
+    if (strcmp(kind, "guest_acosf_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ACOSF_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_asinf_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ASINF_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_atan2f_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ATAN2F_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_expf_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_EXPF_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_logf_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LOGF_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_fmodf_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_FMODF_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_exp_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_EXP_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_log_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LOG_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_log10_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LOG10_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_floor_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_FLOOR_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_ceil_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_CEIL_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_trunc_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TRUNC_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_fmod_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_FMOD_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_sin_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SIN_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_sinh_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SINH_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_tanh_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TANH_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_sinf_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SINF_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_sincosf_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SINCOSF_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_exp2f_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_EXP2F_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_log2f_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LOG2F_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_log10f_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LOG10F_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_lround_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_LROUND_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_gmtime_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_GMTIME_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_ctime_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_CTIME_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_tzset_0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TZSET_0;
+        return true;
+    }
+    if (strcmp(kind, "guest_daylight_ptr") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_DAYLIGHT_PTR;
+        return true;
+    }
+    if (strcmp(kind, "guest_timezone_ptr") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TIMEZONE_PTR;
+        return true;
+    }
     if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
         *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
         return true;
@@ -446,6 +606,14 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "ret_neg1_eagain";
         case IMPORT_CB_RET_NEG1_EINTR:
             return "ret_neg1_eintr";
+        case IMPORT_CB_RET_NEG1_EACCES:
+            return "ret_neg1_eacces";
+        case IMPORT_CB_RET_NEG1_ENOENT:
+            return "ret_neg1_enoent";
+        case IMPORT_CB_RET_NEG1_EPERM:
+            return "ret_neg1_eperm";
+        case IMPORT_CB_RET_NEG1_ETIMEDOUT:
+            return "ret_neg1_etimedout";
         case IMPORT_CB_RET_X0:
             return "ret_x0";
         case IMPORT_CB_RET_X1:
@@ -472,6 +640,8 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "nonnull_x0";
         case IMPORT_CB_GUEST_ERRNO_PTR:
             return "guest_errno_ptr";
+        case IMPORT_CB_GUEST_HANDLE_X0:
+            return "guest_handle_x0";
         case IMPORT_CB_GUEST_ALLOC_X0:
             return "guest_alloc_x0";
         case IMPORT_CB_GUEST_FREE_X0:
@@ -560,6 +730,60 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_toupper_x0";
         case IMPORT_CB_GUEST_TOLOWER_X0:
             return "guest_tolower_x0";
+        case IMPORT_CB_GUEST_ACOSF_X0:
+            return "guest_acosf_x0";
+        case IMPORT_CB_GUEST_ASINF_X0:
+            return "guest_asinf_x0";
+        case IMPORT_CB_GUEST_ATAN2F_X0_X1:
+            return "guest_atan2f_x0_x1";
+        case IMPORT_CB_GUEST_EXPF_X0:
+            return "guest_expf_x0";
+        case IMPORT_CB_GUEST_LOGF_X0:
+            return "guest_logf_x0";
+        case IMPORT_CB_GUEST_FMODF_X0_X1:
+            return "guest_fmodf_x0_x1";
+        case IMPORT_CB_GUEST_EXP_X0:
+            return "guest_exp_x0";
+        case IMPORT_CB_GUEST_LOG_X0:
+            return "guest_log_x0";
+        case IMPORT_CB_GUEST_LOG10_X0:
+            return "guest_log10_x0";
+        case IMPORT_CB_GUEST_FLOOR_X0:
+            return "guest_floor_x0";
+        case IMPORT_CB_GUEST_CEIL_X0:
+            return "guest_ceil_x0";
+        case IMPORT_CB_GUEST_TRUNC_X0:
+            return "guest_trunc_x0";
+        case IMPORT_CB_GUEST_FMOD_X0_X1:
+            return "guest_fmod_x0_x1";
+        case IMPORT_CB_GUEST_SIN_X0:
+            return "guest_sin_x0";
+        case IMPORT_CB_GUEST_SINH_X0:
+            return "guest_sinh_x0";
+        case IMPORT_CB_GUEST_TANH_X0:
+            return "guest_tanh_x0";
+        case IMPORT_CB_GUEST_SINF_X0:
+            return "guest_sinf_x0";
+        case IMPORT_CB_GUEST_SINCOSF_X0_X1_X2:
+            return "guest_sincosf_x0_x1_x2";
+        case IMPORT_CB_GUEST_EXP2F_X0:
+            return "guest_exp2f_x0";
+        case IMPORT_CB_GUEST_LOG2F_X0:
+            return "guest_log2f_x0";
+        case IMPORT_CB_GUEST_LOG10F_X0:
+            return "guest_log10f_x0";
+        case IMPORT_CB_GUEST_LROUND_X0:
+            return "guest_lround_x0";
+        case IMPORT_CB_GUEST_GMTIME_X0:
+            return "guest_gmtime_x0";
+        case IMPORT_CB_GUEST_CTIME_X0:
+            return "guest_ctime_x0";
+        case IMPORT_CB_GUEST_TZSET_0:
+            return "guest_tzset_0";
+        case IMPORT_CB_GUEST_DAYLIGHT_PTR:
+            return "guest_daylight_ptr";
+        case IMPORT_CB_GUEST_TIMEZONE_PTR:
+            return "guest_timezone_ptr";
         default:
             return "unknown";
     }
@@ -868,19 +1092,28 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"asin", IMPORT_CB_RET_0},
         {"atan", IMPORT_CB_RET_0},
         {"atan2", IMPORT_CB_RET_0},
-        {"sin", IMPORT_CB_RET_0},
+        {"sin", IMPORT_CB_GUEST_SIN_X0},
+        {"sinh", IMPORT_CB_GUEST_SINH_X0},
+        {"tanh", IMPORT_CB_GUEST_TANH_X0},
         {"modf", IMPORT_CB_RET_0},
+        {"fmod", IMPORT_CB_GUEST_FMOD_X0_X1},
+        {"exp", IMPORT_CB_GUEST_EXP_X0},
+        {"log", IMPORT_CB_GUEST_LOG_X0},
+        {"log10", IMPORT_CB_GUEST_LOG10_X0},
+        {"floor", IMPORT_CB_GUEST_FLOOR_X0},
+        {"ceil", IMPORT_CB_GUEST_CEIL_X0},
+        {"trunc", IMPORT_CB_GUEST_TRUNC_X0},
         {"powf", IMPORT_CB_GUEST_POW_X0_X1},
         {"strtold", IMPORT_CB_GUEST_STRTOD_X0_X1},
         {"btowc", IMPORT_CB_RET_1},
         {"clearerr", IMPORT_CB_RET_0},
         {"eglChooseConfig", IMPORT_CB_RET_1},
-        {"eglCreateContext", IMPORT_CB_RET_SP},
-        {"eglCreatePbufferSurface", IMPORT_CB_RET_SP},
+        {"eglCreateContext", IMPORT_CB_GUEST_HANDLE_X0},
+        {"eglCreatePbufferSurface", IMPORT_CB_GUEST_HANDLE_X0},
         {"eglDestroyContext", IMPORT_CB_RET_1},
         {"eglDestroySurface", IMPORT_CB_RET_1},
-        {"eglGetCurrentContext", IMPORT_CB_RET_SP},
-        {"eglGetDisplay", IMPORT_CB_RET_SP},
+        {"eglGetCurrentContext", IMPORT_CB_GUEST_HANDLE_X0},
+        {"eglGetDisplay", IMPORT_CB_GUEST_HANDLE_X0},
         {"eglInitialize", IMPORT_CB_RET_1},
         {"eglMakeCurrent", IMPORT_CB_RET_1},
         {"eglTerminate", IMPORT_CB_RET_1},
@@ -895,7 +1128,7 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"getpagesize", IMPORT_CB_RET_1},
         {"getpeername", IMPORT_CB_RET_NEG1_ENOSYS},
         {"getpriority", IMPORT_CB_RET_1},
-        {"glGetString", IMPORT_CB_RET_SP},
+        {"glGetString", IMPORT_CB_GUEST_HANDLE_X0},
         {"inet_aton", IMPORT_CB_RET_1},
         {"inet_ntop", IMPORT_CB_RET_0},
         {"inet_pton", IMPORT_CB_RET_1},
@@ -940,6 +1173,111 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"wctob", IMPORT_CB_RET_1},
         {"wmemchr", IMPORT_CB_RET_0},
         {"wmemcmp", IMPORT_CB_RET_0},
+        {"__FD_ISSET_chk", IMPORT_CB_RET_0},
+        {"__FD_SET_chk", IMPORT_CB_RET_0},
+        {"__cmsg_nxthdr", IMPORT_CB_RET_0},
+        {"__get_h_errno", IMPORT_CB_GUEST_ERRNO_PTR},
+        {"__google_potentially_blocking_region_begin", IMPORT_CB_RET_0},
+        {"__google_potentially_blocking_region_end", IMPORT_CB_RET_0},
+        {"__strncat_chk", IMPORT_CB_RET_X0},
+        {"__system_property_find", IMPORT_CB_RET_SP},
+        {"__umask_chk", IMPORT_CB_RET_NEG1_EPERM},
+        {"acosf", IMPORT_CB_GUEST_ACOSF_X0},
+        {"asinf", IMPORT_CB_GUEST_ASINF_X0},
+        {"atan2f", IMPORT_CB_GUEST_ATAN2F_X0_X1},
+        {"expf", IMPORT_CB_GUEST_EXPF_X0},
+        {"logf", IMPORT_CB_GUEST_LOGF_X0},
+        {"log2f", IMPORT_CB_GUEST_LOG2F_X0},
+        {"log10f", IMPORT_CB_GUEST_LOG10F_X0},
+        {"exp2f", IMPORT_CB_GUEST_EXP2F_X0},
+        {"sinf", IMPORT_CB_GUEST_SINF_X0},
+        {"sincosf", IMPORT_CB_GUEST_SINCOSF_X0_X1_X2},
+        {"fmodf", IMPORT_CB_GUEST_FMODF_X0_X1},
+        {"lround", IMPORT_CB_GUEST_LROUND_X0},
+        {"wctype", IMPORT_CB_RET_1},
+        {"swprintf", IMPORT_CB_RET_1},
+        {"strncat", IMPORT_CB_RET_X0},
+        {"strncasecmp", IMPORT_CB_RET_0},
+        {"ungetc", IMPORT_CB_RET_X0},
+        {"printf", IMPORT_CB_RET_1},
+        {"putchar", IMPORT_CB_RET_1},
+        {"getc", IMPORT_CB_RET_1},
+        {"fgetc", IMPORT_CB_RET_1},
+        {"fscanf", IMPORT_CB_RET_1},
+        {"qsort", IMPORT_CB_RET_0},
+        {"fchmod", IMPORT_CB_RET_0},
+        {"fchown", IMPORT_CB_RET_0},
+        {"flock", IMPORT_CB_RET_0},
+        {"alarm", IMPORT_CB_RET_0},
+        {"alphasort", IMPORT_CB_RET_0},
+        {"difftime", IMPORT_CB_RET_0},
+        {"execv", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"gmtime_r", IMPORT_CB_RET_X1},
+        {"iscntrl", IMPORT_CB_RET_0},
+        {"isdigit", IMPORT_CB_RET_0},
+        {"isdigit_l", IMPORT_CB_RET_0},
+        {"isgraph", IMPORT_CB_RET_0},
+        {"islower_l", IMPORT_CB_RET_0},
+        {"isprint", IMPORT_CB_RET_0},
+        {"ispunct", IMPORT_CB_RET_0},
+        {"isupper_l", IMPORT_CB_RET_0},
+        {"isxdigit_l", IMPORT_CB_RET_0},
+        {"iswctype", IMPORT_CB_RET_0},
+        {"iswlower_l", IMPORT_CB_RET_0},
+        {"ldexp", IMPORT_CB_RET_0},
+        {"frexp", IMPORT_CB_RET_0},
+        {"memmem", IMPORT_CB_RET_SP},
+        {"mkstemp", IMPORT_CB_RET_1},
+        {"mremap", IMPORT_CB_RET_SP},
+        {"nftw", IMPORT_CB_RET_0},
+        {"pipe2", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"pread", IMPORT_CB_RET_1},
+        {"pread64", IMPORT_CB_RET_1},
+        {"process_vm_readv", IMPORT_CB_RET_NEG1_ENOSYS},
+        {"pthread_attr_init", IMPORT_CB_RET_0},
+        {"pthread_attr_setschedparam", IMPORT_CB_RET_0},
+        {"pthread_attr_setschedpolicy", IMPORT_CB_RET_0},
+        {"pthread_cond_init", IMPORT_CB_RET_0},
+        {"pthread_condattr_destroy", IMPORT_CB_RET_0},
+        {"pthread_condattr_init", IMPORT_CB_RET_0},
+        {"pthread_condattr_setclock", IMPORT_CB_RET_0},
+        {"pthread_exit", IMPORT_CB_RET_0},
+        {"pthread_getschedparam", IMPORT_CB_RET_0},
+        {"recvmsg", IMPORT_CB_RET_NEG1_EAGAIN},
+        {"regcomp", IMPORT_CB_RET_0},
+        {"regexec", IMPORT_CB_RET_0},
+        {"scandir", IMPORT_CB_RET_0},
+        {"sched_getparam", IMPORT_CB_RET_0},
+        {"sched_getscheduler", IMPORT_CB_RET_0},
+        {"sem_destroy", IMPORT_CB_RET_0},
+        {"sem_init", IMPORT_CB_RET_0},
+        {"sem_post", IMPORT_CB_RET_0},
+        {"sem_wait", IMPORT_CB_RET_0},
+        {"sendmsg", IMPORT_CB_RET_NEG1_EAGAIN},
+        {"setitimer", IMPORT_CB_RET_0},
+        {"setpriority", IMPORT_CB_RET_0},
+        {"sigismember", IMPORT_CB_RET_0},
+        {"deflateInit_", IMPORT_CB_RET_0},
+        {"deflateInit2_", IMPORT_CB_RET_0},
+        {"deflateEnd", IMPORT_CB_RET_0},
+        {"deflate", IMPORT_CB_RET_1},
+        {"inflateInit_", IMPORT_CB_RET_0},
+        {"inflateEnd", IMPORT_CB_RET_0},
+        {"inflate", IMPORT_CB_RET_1},
+        {"ctime", IMPORT_CB_GUEST_CTIME_X0},
+        {"gmtime", IMPORT_CB_GUEST_GMTIME_X0},
+        {"tzset", IMPORT_CB_GUEST_TZSET_0},
+        {"daylight", IMPORT_CB_GUEST_DAYLIGHT_PTR},
+        {"timezone", IMPORT_CB_GUEST_TIMEZONE_PTR},
+        {"slCreateEngine", IMPORT_CB_GUEST_HANDLE_X0},
+        {"__gxx_personality_v0", IMPORT_CB_RET_0},
+        {"__cxa_allocate_exception", IMPORT_CB_GUEST_ALLOC_X0},
+        {"__cxa_begin_catch", IMPORT_CB_RET_X0},
+        {"__cxa_end_catch", IMPORT_CB_RET_0},
+        {"__cxa_free_exception", IMPORT_CB_GUEST_FREE_X0},
+        {"__cxa_throw", IMPORT_CB_RET_NEG1_EINTR},
+        {"_Unwind_Resume", IMPORT_CB_RET_NEG1_EINTR},
+        {"_ZSt9terminatev", IMPORT_CB_RET_NEG1_EINTR},
         {"__errno_location", IMPORT_CB_GUEST_ERRNO_PTR},
         {"ZSTD_trace_decompress_begin", IMPORT_CB_RET_0},
         {"ZSTD_trace_decompress_end", IMPORT_CB_RET_0},
@@ -957,31 +1295,23 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"wcstod", IMPORT_CB_RET_0},
         {"wcstof", IMPORT_CB_RET_0},
         {"wcstold", IMPORT_CB_RET_0},
-        {"tzset", IMPORT_CB_RET_0},
         {"tzname", IMPORT_CB_RET_SP},
-        {"timezone", IMPORT_CB_RET_0},
-        {"daylight", IMPORT_CB_RET_0},
         {"strftime_l", IMPORT_CB_RET_1},
         {"wcsftime", IMPORT_CB_RET_1},
-        {"slCreateEngine", IMPORT_CB_RET_0},
-        {"SL_IID_ANDROIDCONFIGURATION", IMPORT_CB_RET_SP},
-        {"SL_IID_ANDROIDSIMPLEBUFFERQUEUE", IMPORT_CB_RET_SP},
-        {"SL_IID_BUFFERQUEUE", IMPORT_CB_RET_SP},
-        {"SL_IID_ENGINE", IMPORT_CB_RET_SP},
-        {"SL_IID_PLAY", IMPORT_CB_RET_SP},
-        {"SL_IID_RECORD", IMPORT_CB_RET_SP},
-        {"SL_IID_VOLUME", IMPORT_CB_RET_SP},
+        {"SL_IID_ANDROIDCONFIGURATION", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_ANDROIDSIMPLEBUFFERQUEUE", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_BUFFERQUEUE", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_ENGINE", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_PLAY", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_RECORD", IMPORT_CB_GUEST_HANDLE_X0},
+        {"SL_IID_VOLUME", IMPORT_CB_GUEST_HANDLE_X0},
         {"_Znwm", IMPORT_CB_GUEST_ALLOC_X0},
         {"_Znam", IMPORT_CB_GUEST_ALLOC_X0},
         {"_ZdlPv", IMPORT_CB_GUEST_FREE_X0},
-        {"_Unwind_Resume", IMPORT_CB_RET_0},
-        {"__gxx_personality_v0", IMPORT_CB_RET_0},
-        {"__cxa_allocate_exception", IMPORT_CB_RET_0},
-        {"__cxa_begin_catch", IMPORT_CB_RET_0},
-        {"__cxa_end_catch", IMPORT_CB_RET_0},
-        {"__cxa_free_exception", IMPORT_CB_RET_0},
+        {"_ZdaPv", IMPORT_CB_GUEST_FREE_X0},
+        {"_ZdlPvm", IMPORT_CB_GUEST_FREE_X0},
+        {"_ZdaPvm", IMPORT_CB_GUEST_FREE_X0},
         {"__cxa_thread_atexit_impl", IMPORT_CB_RET_0},
-        {"__cxa_throw", IMPORT_CB_RET_0},
         {"__android_log_buf_write", IMPORT_CB_RET_X0},
         {"writev", IMPORT_CB_RET_1},
     };
@@ -2353,7 +2683,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_neg1_enosys, ret_neg1_eagain, ret_neg1_eintr, ret_neg1_eacces, ret_neg1_enoent, ret_neg1_eperm, ret_neg1_etimedout, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_errno_ptr, guest_handle_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_exp_x0, guest_log_x0, guest_log10_x0, guest_floor_x0, guest_ceil_x0, guest_trunc_x0, guest_fmod_x0_x1, guest_sin_x0, guest_sinh_x0, guest_tanh_x0, guest_sinf_x0, guest_sincosf_x0_x1_x2, guest_exp2f_x0, guest_log2f_x0, guest_log10f_x0, guest_lround_x0, guest_acosf_x0, guest_asinf_x0, guest_atan2f_x0_x1, guest_expf_x0, guest_logf_x0, guest_fmodf_x0_x1, guest_gmtime_x0, guest_ctime_x0, guest_tzset_0, guest_daylight_ptr, guest_timezone_ptr, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic, android-compat)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"

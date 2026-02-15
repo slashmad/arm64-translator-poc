@@ -53,6 +53,8 @@
 - Kingshot-importprofilering kan nu köras för alla `arm64-v8a`-bibliotek via `make run-kingshot-import-profile-all` (sammanfattning + global unmapped-lista).
 - Kingshot smoke-runner finns nu via `make run-kingshot-smoke` (autoval av symbol + import trace + unsupported-logg).
 - Kingshot smoke-matrix finns nu via `make run-kingshot-smoke-matrix` (batch mot toppbibliotek med loggar + sammanfattning).
+- Smoke-matrixen har nu timeout + blacklist-stöd (`SMOKE_TIMEOUT_SEC`, `SMOKE_BLACKLIST_FILE`) och loggar `timeout` som tydlig exit-reason.
+- En default blacklist finns nu i `profiles/kingshot_smoke_blacklist.txt` för kända non-returning symboler (`_start` i crashlytics-trampoline).
 - Import-callbacks täcker nu även `guest_vsnprintf_x0_x1_x2_x3` och `guest_vsscanf_x0_x1_x2`.
 - Import-callbacks täcker nu även `guest_vsnprintf_chk_x0_x1_x4_x5` för `__vsnprintf_chk`.
 - Import-callbacks täcker nu även `guest_vfprintf_x0_x1_x2` och `guest_vasprintf_x0_x1_x2`.
@@ -62,6 +64,8 @@
 - Kingshot-profiler mappar nu fler fortify/bionic-varianter (`__memcpy_chk`, `__memmove_chk`, `__memset_chk`, `__strlen_chk`, `__strchr_chk`, `__android_log_vprint`).
 - Edge-case regressioner finns nu för `snprintf` (`inf/nan`, trunc-edge) och `sscanf`/`strtod` (inverterad scanset, `nan(...)`).
 - Ett första NativeBridge/loader-skelett finns nu i `nativebridge_skeleton/` (`make run-nativebridge-skeleton-build`, `make run-nativebridge-skeleton-demo`).
+- `run-nativebridge-skeleton-demo` är nu kopplad till Kingshot-profiler och visar aktiv callback/stub-profil vid körning.
+- Kingshot all-lib importtäckning i relaxed-läge är nu `100.00%` (1776/1776 mapped, 0 unmapped).
 - PoC kör lokala regressionstargets (`make run-*`) stabilt, inklusive nya SP-fall.
 - Opcode-inventering finns nu via `make run-opcode-inventory` (senaste rapport:
   `reports/opcode_inventory_20260212_202130.txt`).
