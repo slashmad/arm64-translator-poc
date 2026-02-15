@@ -61,6 +61,9 @@ map_callback() {
         vfprintf) echo guest_vfprintf_x0_x1_x2 ;;
         vasprintf) echo guest_vasprintf_x0_x1_x2 ;;
         posix_memalign) echo guest_posix_memalign_x0_x1_x2 ;;
+        pthread_mutex_init|pthread_mutex_destroy|sigemptyset) echo ret_0 ;;
+        bind|connect|getsockname|sendto|socket|poll|select) echo ret_neg1 ;;
+        mkdir|prctl|uname) echo ret_0 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell)

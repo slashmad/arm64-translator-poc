@@ -203,6 +203,7 @@ make run-kingshot-import-profile-all-strict
 make run-kingshot-coverage-gate
 make run-kingshot-smoke
 make run-kingshot-smoke-matrix
+make run-kingshot-smoke-matrix-ci
 make verify-kingshot
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
@@ -285,6 +286,12 @@ All-lib profile output also includes:
 - `reports/kingshot_all_import_coverage.txt`
 - `reports/kingshot_smoke_matrix_summary.txt`
 - `reports/kingshot_smoke_matrix_exit_reason_summary.txt`
+
+You can override the APK path used by `make` targets with:
+
+```sh
+KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-import-profile-all
+```
 
 ## NativeBridge Skeleton
 
