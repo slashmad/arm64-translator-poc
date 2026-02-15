@@ -40,8 +40,16 @@ map_callback() {
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
         __vsnprintf_chk) echo guest_vsnprintf_chk_x0_x1_x4_x5 ;;
         vsnprintf) echo guest_vsnprintf_x0_x1_x2_x3 ;;
+        vfprintf) echo guest_vfprintf_x0_x1_x2 ;;
+        vasprintf) echo guest_vasprintf_x0_x1_x2 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
+        fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort) echo ret_0 ;;
+        pthread_mutex_lock|pthread_mutex_unlock|pthread_once|pthread_key_create|pthread_key_delete|pthread_setspecific|pthread_create|pthread_join|pthread_detach|pthread_cond_wait|pthread_cond_broadcast|pthread_rwlock_wrlock|pthread_rwlock_unlock|pthread_rwlock_rdlock) echo ret_0 ;;
+        close|fclose|fflush|fseek|munmap|mprotect|setsockopt|getsockopt|fcntl|remove|raise|pclose) echo ret_0 ;;
+        __errno|__sF|fopen|fdopen|fgets|opendir|readdir|mmap|getenv|pthread_self) echo ret_sp ;;
+        read|write|fread|fwrite|fputc|open|lseek|waitpid|readlink) echo ret_1 ;;
+        pthread_getspecific|getpid|gettid|sysconf|clock_gettime|gettimeofday|time) echo ret_1 ;;
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
         dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint) echo ret_x0 ;;

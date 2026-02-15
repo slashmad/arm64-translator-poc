@@ -34,6 +34,8 @@ typedef struct {
 } ElfImportCallbackSpec;
 
 enum {
+    IMPORT_CB_RET_0 = 0x01,
+    IMPORT_CB_RET_1 = 0x02,
     IMPORT_CB_RET_X0 = 0x10,
     IMPORT_CB_RET_X1 = 0x11,
     IMPORT_CB_RET_X2 = 0x12,
@@ -72,7 +74,9 @@ enum {
     IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67,
     IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3 = 0x68,
     IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69,
-    IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A
+    IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A,
+    IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2 = 0x6B,
+    IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C
 };
 
 typedef struct {
@@ -183,6 +187,14 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
 
     if (strcmp(kind, "add_x0_x1") == 0) {
         *out_callback_id = IMPORT_CB_ADD_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "ret_0") == 0) {
+        *out_callback_id = IMPORT_CB_RET_0;
+        return true;
+    }
+    if (strcmp(kind, "ret_1") == 0) {
+        *out_callback_id = IMPORT_CB_RET_1;
         return true;
     }
     if (strcmp(kind, "sub_x0_x1") == 0) {
@@ -305,6 +317,14 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5;
         return true;
     }
+    if (strcmp(kind, "guest_vfprintf_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2;
+        return true;
+    }
+    if (strcmp(kind, "guest_vasprintf_x0_x1_x2") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2;
+        return true;
+    }
     if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
         *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
         return true;
@@ -314,6 +334,10 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
 
 static const char *import_callback_kind_name(uint8_t callback_id) {
     switch (callback_id) {
+        case IMPORT_CB_RET_0:
+            return "ret_0";
+        case IMPORT_CB_RET_1:
+            return "ret_1";
         case IMPORT_CB_RET_X0:
             return "ret_x0";
         case IMPORT_CB_RET_X1:
@@ -392,6 +416,10 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_vsscanf_x0_x1_x2";
         case IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5:
             return "guest_vsnprintf_chk_x0_x1_x4_x5";
+        case IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2:
+            return "guest_vfprintf_x0_x1_x2";
+        case IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2:
+            return "guest_vasprintf_x0_x1_x2";
         default:
             return "unknown";
     }
@@ -535,28 +563,35 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"free", IMPORT_CB_GUEST_FREE_X0},
         {"realloc", IMPORT_CB_GUEST_REALLOC_X0_X1},
         {"memcpy", IMPORT_CB_GUEST_MEMCPY_X0_X1_X2},
+        {"__memcpy_chk", IMPORT_CB_GUEST_MEMCPY_X0_X1_X2},
         {"memset", IMPORT_CB_GUEST_MEMSET_X0_X1_X2},
+        {"__memset_chk", IMPORT_CB_GUEST_MEMSET_X0_X1_X2},
         {"memcmp", IMPORT_CB_GUEST_MEMCMP_X0_X1_X2},
         {"memmove", IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2},
+        {"__memmove_chk", IMPORT_CB_GUEST_MEMMOVE_X0_X1_X2},
         {"memchr", IMPORT_CB_GUEST_MEMCHR_X0_X1_X2},
         {"memrchr", IMPORT_CB_GUEST_MEMRCHR_X0_X1_X2},
         {"strnlen", IMPORT_CB_GUEST_STRNLEN_X0_X1},
+        {"__strlen_chk", IMPORT_CB_GUEST_STRNLEN_X0_X1},
         {"strlen", IMPORT_CB_GUEST_STRLEN_X0},
         {"strcmp", IMPORT_CB_GUEST_STRCMP_X0_X1},
         {"strncmp", IMPORT_CB_GUEST_STRNCMP_X0_X1_X2},
         {"strcpy", IMPORT_CB_GUEST_STRCPY_X0_X1},
         {"strncpy", IMPORT_CB_GUEST_STRNCPY_X0_X1_X2},
         {"strchr", IMPORT_CB_GUEST_STRCHR_X0_X1},
+        {"__strchr_chk", IMPORT_CB_GUEST_STRCHR_X0_X1},
         {"strrchr", IMPORT_CB_GUEST_STRRCHR_X0_X1},
         {"strstr", IMPORT_CB_GUEST_STRSTR_X0_X1},
         {"atoi", IMPORT_CB_GUEST_ATOI_X0},
         {"strtol", IMPORT_CB_GUEST_STRTOL_X0_X1_X2},
         {"snprintf", IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2},
+        {"__vsnprintf_chk", IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5},
         {"strtod", IMPORT_CB_GUEST_STRTOD_X0_X1},
         {"sscanf", IMPORT_CB_GUEST_SSCANF_X0_X1_X2},
         {"vsnprintf", IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3},
         {"vsscanf", IMPORT_CB_GUEST_VSSCANF_X0_X1_X2},
-        {"__vsnprintf_chk", IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5},
+        {"vfprintf", IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2},
+        {"vasprintf", IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2},
     };
     static const struct {
         const char *name;
@@ -569,6 +604,25 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"__android_log_assert", IMPORT_CB_RET_X0},
         {"__android_log_write", IMPORT_CB_RET_X0},
         {"__android_log_vprint", IMPORT_CB_RET_X0},
+        {"__errno", IMPORT_CB_RET_SP},
+        {"__sF", IMPORT_CB_RET_SP},
+        {"abort", IMPORT_CB_RET_0},
+        {"dl_iterate_phdr", IMPORT_CB_RET_0},
+        {"pthread_mutex_lock", IMPORT_CB_RET_0},
+        {"pthread_mutex_unlock", IMPORT_CB_RET_0},
+        {"pthread_once", IMPORT_CB_RET_0},
+        {"pthread_key_create", IMPORT_CB_RET_0},
+        {"pthread_key_delete", IMPORT_CB_RET_0},
+        {"pthread_setspecific", IMPORT_CB_RET_0},
+        {"pthread_create", IMPORT_CB_RET_0},
+        {"pthread_join", IMPORT_CB_RET_0},
+        {"pthread_detach", IMPORT_CB_RET_0},
+        {"pthread_cond_wait", IMPORT_CB_RET_0},
+        {"pthread_cond_broadcast", IMPORT_CB_RET_0},
+        {"pthread_rwlock_wrlock", IMPORT_CB_RET_0},
+        {"pthread_rwlock_rdlock", IMPORT_CB_RET_0},
+        {"pthread_rwlock_unlock", IMPORT_CB_RET_0},
+        {"pthread_self", IMPORT_CB_RET_SP},
     };
 
     if (!opts || !preset || preset[0] == '\0') {
@@ -1927,7 +1981,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"

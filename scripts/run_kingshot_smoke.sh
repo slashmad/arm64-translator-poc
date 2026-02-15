@@ -5,8 +5,10 @@ ROOT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 APK_PATH=${1:-/home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk}
 LIB_ENTRY=${2:-lib/arm64-v8a/libmain.so}
 SYMBOL=${3:-}
+MAX_RETRIES=${4:-}
 PROFILE_DIR="$ROOT_DIR/profiles"
 REPORT_DIR="$ROOT_DIR/reports"
+DEBUG_EXIT=${TINY_DBT_SMOKE_DEBUG_EXIT:-1}
 
 choose_symbol() {
     readelf --wide -Ws "$1" | awk '
@@ -40,6 +42,18 @@ if [ ! -f "$APK_PATH" ]; then
     echo "APK not found: $APK_PATH" >&2
     exit 1
 fi
+if [ -n "$MAX_RETRIES" ]; then
+    case "$MAX_RETRIES" in
+        ''|*[!0-9]*)
+            echo "MAX_RETRIES must be a positive integer when provided" >&2
+            exit 1
+            ;;
+    esac
+    if [ "$MAX_RETRIES" -le 0 ]; then
+        echo "MAX_RETRIES must be > 0 when provided" >&2
+        exit 1
+    fi
+fi
 
 mkdir -p "$PROFILE_DIR" "$REPORT_DIR"
 
@@ -55,7 +69,8 @@ if [ ! -f "$CALLBACK_FILE" ] || [ ! -f "$STUB_FILE" ]; then
 fi
 
 TMP_LIB=$(mktemp /tmp/kingshot_smoke_lib.XXXXXX.so)
-trap 'rm -f "$TMP_LIB"' EXIT INT TERM
+TMP_OUT=$(mktemp /tmp/kingshot_smoke_out.XXXXXX.txt)
+trap 'rm -f "$TMP_LIB" "$TMP_OUT"' EXIT INT TERM
 
 unzip -p "$APK_PATH" "$LIB_ENTRY" > "$TMP_LIB"
 if [ ! -s "$TMP_LIB" ]; then
@@ -82,6 +97,12 @@ set -- \
     --elf-symbol "$SYMBOL" \
     --elf-import-trace "$TRACE_FILE" \
     --log-unsupported "$UNSUPPORTED_FILE"
+if [ "$DEBUG_EXIT" != "0" ]; then
+    set -- "$@" --debug-exit
+fi
+if [ -n "$MAX_RETRIES" ]; then
+    set -- "$@" --max-retries "$MAX_RETRIES"
+fi
 
 if [ -f "$CALLBACK_FILE" ]; then
     while IFS= read -r spec; do
@@ -102,12 +123,26 @@ if [ -f "$STUB_FILE" ]; then
     done < "$STUB_FILE"
 fi
 
-"$ROOT_DIR/tiny_dbt" "$@"
+set +e
+"$ROOT_DIR/tiny_dbt" "$@" > "$TMP_OUT" 2>&1
+tiny_rc=$?
+set -e
+cat "$TMP_OUT"
 
 unsupported_count=$(grep -cve '^[[:space:]]*$' "$UNSUPPORTED_FILE" || true)
 trace_count=$(grep -cve '^[[:space:]]*$' "$TRACE_FILE" || true)
+exit_reason=$(sed -n 's/^debug:.*exit_reason=\([0-9][0-9]*\).*/\1/p' "$TMP_OUT" | tail -n 1)
+[ -z "$exit_reason" ] && exit_reason="-"
+if [ "$tiny_rc" -eq 0 ]; then
+    status="ok"
+else
+    status="fail"
+fi
 echo "Kingshot smoke run completed:"
+echo "  status:      $status"
 echo "  lib:         $LIB_ENTRY"
 echo "  symbol:      $SYMBOL"
+echo "  exit_reason: $exit_reason"
 echo "  trace:       $TRACE_FILE ($trace_count lines)"
 echo "  unsupported: $UNSUPPORTED_FILE ($unsupported_count lines)"
+exit "$tiny_rc"

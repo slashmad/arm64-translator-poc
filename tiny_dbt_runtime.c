@@ -73,6 +73,8 @@ enum {
 };
 
 enum {
+    IMPORT_CB_RET_0 = 0x01,
+    IMPORT_CB_RET_1 = 0x02,
     IMPORT_CB_RET_X0 = 0x10,
     IMPORT_CB_RET_X1 = 0x11,
     IMPORT_CB_RET_X2 = 0x12,
@@ -111,7 +113,9 @@ enum {
     IMPORT_CB_GUEST_SSCANF_X0_X1_X2 = 0x67,
     IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3 = 0x68,
     IMPORT_CB_GUEST_VSSCANF_X0_X1_X2 = 0x69,
-    IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A
+    IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5 = 0x6A,
+    IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2 = 0x6B,
+    IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C
 };
 
 struct TinyDbt {
@@ -1580,6 +1584,10 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
     }
 
     switch (callback_id) {
+        case IMPORT_CB_RET_0:
+            return 0;
+        case IMPORT_CB_RET_1:
+            return 1;
         case IMPORT_CB_RET_X0:
             return state->x[0];
         case IMPORT_CB_RET_X1:
@@ -2022,6 +2030,45 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             }
             return guest_snprintf_format(g_tiny_dbt_current_guest_mem, state->x[0], state->x[1], state->x[4],
                                          &tmp_state);
+        }
+        case IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2: {
+            CPUState tmp_state;
+            if (!g_tiny_dbt_current_guest_mem || !guest_prepare_vsnprintf_state(state, state->x[2], &tmp_state)) {
+                return 0;
+            }
+            /* Approximate vfprintf by formatting and returning the produced length. */
+            return guest_snprintf_format(g_tiny_dbt_current_guest_mem, 0, 0, state->x[1], &tmp_state);
+        }
+        case IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2: {
+            CPUState tmp_state;
+            uint64_t outptr_addr = state->x[0];
+            uint64_t fmt_addr = state->x[1];
+            uint64_t needed = 0;
+            uint64_t alloc_ptr = 0;
+            uint64_t alloc_size = 0;
+            uint64_t zero = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || !guest_prepare_vsnprintf_state(state, state->x[2], &tmp_state)) {
+                return UINT64_MAX;
+            }
+            if (!guest_mem_range_valid(outptr_addr, sizeof(uint64_t))) {
+                return UINT64_MAX;
+            }
+
+            needed = guest_snprintf_format(g_tiny_dbt_current_guest_mem, 0, 0, fmt_addr, &tmp_state);
+            if (needed > UINT64_MAX - 1u) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)outptr_addr, &zero, sizeof(zero));
+                return UINT64_MAX;
+            }
+            if (!guest_heap_alloc(state, needed + 1u, &alloc_ptr, &alloc_size)) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)outptr_addr, &zero, sizeof(zero));
+                return UINT64_MAX;
+            }
+
+            (void)alloc_size;
+            (void)guest_snprintf_format(g_tiny_dbt_current_guest_mem, alloc_ptr, needed + 1u, fmt_addr, &tmp_state);
+            memcpy(g_tiny_dbt_current_guest_mem + (size_t)outptr_addr, &alloc_ptr, sizeof(alloc_ptr));
+            return needed;
         }
         default:
             return 0;
