@@ -82,7 +82,17 @@ enum {
     IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E,
     IMPORT_CB_GUEST_BASENAME_X0 = 0x6F,
     IMPORT_CB_GUEST_STRDUP_X0 = 0x70,
-    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71
+    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71,
+    IMPORT_CB_GUEST_POW_X0_X1 = 0x72,
+    IMPORT_CB_GUEST_SQRT_X0 = 0x73,
+    IMPORT_CB_GUEST_COS_X0 = 0x74,
+    IMPORT_CB_GUEST_TAN_X0 = 0x75,
+    IMPORT_CB_GUEST_ISLOWER_X0 = 0x76,
+    IMPORT_CB_GUEST_ISSPACE_X0 = 0x77,
+    IMPORT_CB_GUEST_ISXDIGIT_X0 = 0x78,
+    IMPORT_CB_GUEST_ISUPPER_X0 = 0x79,
+    IMPORT_CB_GUEST_TOUPPER_X0 = 0x7A,
+    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B
 };
 
 typedef struct {
@@ -355,6 +365,46 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_STRTOF_X0_X1;
         return true;
     }
+    if (strcmp(kind, "guest_pow_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_POW_X0_X1;
+        return true;
+    }
+    if (strcmp(kind, "guest_sqrt_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_SQRT_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_cos_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_COS_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_tan_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TAN_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_islower_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ISLOWER_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_isspace_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ISSPACE_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_isxdigit_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ISXDIGIT_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_isupper_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_ISUPPER_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_toupper_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TOUPPER_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_tolower_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_TOLOWER_X0;
+        return true;
+    }
     if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
         *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
         return true;
@@ -462,6 +512,26 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_strdup_x0";
         case IMPORT_CB_GUEST_STRTOF_X0_X1:
             return "guest_strtof_x0_x1";
+        case IMPORT_CB_GUEST_POW_X0_X1:
+            return "guest_pow_x0_x1";
+        case IMPORT_CB_GUEST_SQRT_X0:
+            return "guest_sqrt_x0";
+        case IMPORT_CB_GUEST_COS_X0:
+            return "guest_cos_x0";
+        case IMPORT_CB_GUEST_TAN_X0:
+            return "guest_tan_x0";
+        case IMPORT_CB_GUEST_ISLOWER_X0:
+            return "guest_islower_x0";
+        case IMPORT_CB_GUEST_ISSPACE_X0:
+            return "guest_isspace_x0";
+        case IMPORT_CB_GUEST_ISXDIGIT_X0:
+            return "guest_isxdigit_x0";
+        case IMPORT_CB_GUEST_ISUPPER_X0:
+            return "guest_isupper_x0";
+        case IMPORT_CB_GUEST_TOUPPER_X0:
+            return "guest_toupper_x0";
+        case IMPORT_CB_GUEST_TOLOWER_X0:
+            return "guest_tolower_x0";
         default:
             return "unknown";
     }
@@ -632,6 +702,16 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"__vsnprintf_chk", IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5},
         {"strtod", IMPORT_CB_GUEST_STRTOD_X0_X1},
         {"strtof", IMPORT_CB_GUEST_STRTOF_X0_X1},
+        {"pow", IMPORT_CB_GUEST_POW_X0_X1},
+        {"sqrt", IMPORT_CB_GUEST_SQRT_X0},
+        {"cos", IMPORT_CB_GUEST_COS_X0},
+        {"tan", IMPORT_CB_GUEST_TAN_X0},
+        {"islower", IMPORT_CB_GUEST_ISLOWER_X0},
+        {"isspace", IMPORT_CB_GUEST_ISSPACE_X0},
+        {"isxdigit", IMPORT_CB_GUEST_ISXDIGIT_X0},
+        {"isupper", IMPORT_CB_GUEST_ISUPPER_X0},
+        {"toupper", IMPORT_CB_GUEST_TOUPPER_X0},
+        {"tolower", IMPORT_CB_GUEST_TOLOWER_X0},
         {"sscanf", IMPORT_CB_GUEST_SSCANF_X0_X1_X2},
         {"vsnprintf", IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3},
         {"vsscanf", IMPORT_CB_GUEST_VSSCANF_X0_X1_X2},
@@ -697,13 +777,55 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"ferror", IMPORT_CB_RET_0},
         {"ftell", IMPORT_CB_RET_0},
     };
+    static const struct {
+        const char *name;
+        uint8_t callback_id;
+    } compat_extra[] = {
+        {"dup2", IMPORT_CB_RET_NEG1},
+        {"execl", IMPORT_CB_RET_NEG1},
+        {"execve", IMPORT_CB_RET_NEG1},
+        {"fileno", IMPORT_CB_RET_1},
+        {"fork", IMPORT_CB_RET_NEG1},
+        {"getaddrinfo", IMPORT_CB_RET_NEG1},
+        {"gethostbyname", IMPORT_CB_RET_0},
+        {"getppid", IMPORT_CB_RET_1},
+        {"inet_ntoa", IMPORT_CB_RET_0},
+        {"ioctl", IMPORT_CB_RET_NEG1},
+        {"localtime_r", IMPORT_CB_RET_X1},
+        {"lstat", IMPORT_CB_RET_NEG1},
+        {"popen", IMPORT_CB_RET_SP},
+        {"pthread_cond_destroy", IMPORT_CB_RET_0},
+        {"pthread_cond_signal", IMPORT_CB_RET_0},
+        {"pthread_cond_timedwait", IMPORT_CB_RET_0},
+        {"rand", IMPORT_CB_RET_1},
+        {"rename", IMPORT_CB_RET_NEG1},
+        {"sigaltstack", IMPORT_CB_RET_NEG1},
+        {"sigprocmask", IMPORT_CB_RET_NEG1},
+        {"sigsetjmp", IMPORT_CB_RET_0},
+        {"srand", IMPORT_CB_RET_0},
+        {"strcat", IMPORT_CB_RET_X0},
+        {"strtok", IMPORT_CB_RET_X0},
+        {"unlink", IMPORT_CB_RET_NEG1},
+        {"wcrtomb", IMPORT_CB_RET_1},
+        {"wcslen", IMPORT_CB_RET_0},
+        {"wmemcpy", IMPORT_CB_RET_X0},
+        {"wmemmove", IMPORT_CB_RET_X0},
+        {"wmemset", IMPORT_CB_RET_X0},
+        {"__ctype_get_mb_cur_max", IMPORT_CB_RET_1},
+        {"newlocale", IMPORT_CB_RET_SP},
+        {"freelocale", IMPORT_CB_RET_0},
+        {"uselocale", IMPORT_CB_RET_SP},
+    };
 
     if (!opts || !preset || preset[0] == '\0') {
         return false;
     }
 
-    if (strcmp(preset, "libc-basic") != 0 && strcmp(preset, "android-basic") != 0) {
-        fprintf(stderr, "unknown value for --elf-import-preset: %s (expected libc-basic or android-basic)\n", preset);
+    if (strcmp(preset, "libc-basic") != 0 && strcmp(preset, "android-basic") != 0 &&
+        strcmp(preset, "android-compat") != 0) {
+        fprintf(stderr,
+                "unknown value for --elf-import-preset: %s (expected libc-basic, android-basic, or android-compat)\n",
+                preset);
         return false;
     }
 
@@ -714,9 +836,17 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         }
     }
 
-    if (strcmp(preset, "android-basic") == 0) {
+    if (strcmp(preset, "android-basic") == 0 || strcmp(preset, "android-compat") == 0) {
         for (size_t i = 0; i < sizeof(android_extra) / sizeof(android_extra[0]); ++i) {
             if (!add_elf_import_callback_name(opts, android_extra[i].name, android_extra[i].callback_id)) {
+                fprintf(stderr, "out of memory while applying --elf-import-preset\n");
+                return false;
+            }
+        }
+    }
+    if (strcmp(preset, "android-compat") == 0) {
+        for (size_t i = 0; i < sizeof(compat_extra) / sizeof(compat_extra[0]); ++i) {
+            if (!add_elf_import_callback_name(opts, compat_extra[i].name, compat_extra[i].callback_id)) {
                 fprintf(stderr, "out of memory while applying --elf-import-preset\n");
                 return false;
             }
@@ -2054,8 +2184,8 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
-            "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_pow_x0_x1, guest_sqrt_x0, guest_cos_x0, guest_tan_x0, guest_islower_x0, guest_isspace_x0, guest_isxdigit_x0, guest_isupper_x0, guest_toupper_x0, guest_tolower_x0, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
+            "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic, android-compat)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"
             "  --set-reg <name=value>          set initial register/state (x0..x30, sp, pc, nzcv, heap_*)\n"

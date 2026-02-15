@@ -1,6 +1,8 @@
 CC ?= cc
 CFLAGS ?= -O2 -Wall -Wextra -Werror -std=c11
+LDLIBS ?= -lm
 KSHOT_APK_PATH ?= /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk
+KSHOT_PROFILE_MODE ?= relaxed
 
 .PHONY: all clean run-example run-branch-example run-movk-example run-addreg-example run-reg8-addimm-example run-reg9-memory-example run-reg10-addreg-example run-spill-addimm-example run-spill-movk-example run-spill-addreg-example run-spill-csel-eq-example run-spill-csel-ne-example run-spill-cbz-example run-spill-tbz-example run-spill-memory64-example run-spill-memory32-example run-spill-ldur64-example run-spill-byte-example run-spill-ldrsb-example run-spill-memory-oob-example run-spill-postpre64-example run-spill-postpre32-example run-spill-postpre-ldrsb-example run-spill-pair-postpre64-example run-spill-pair-offset64-example run-memory-example run-memory32-example run-oob-example run-cond-eq-example run-cond-lt-example run-csel-true-example run-csel-false-example run-ands-example run-tst-example run-shift-add-lsl-example run-shift-sub-lsr-example run-shift-cmp-asr-example run-orr-shift-example run-eor-shift-example run-bics-example run-bcond-crossblock-example run-flags-preserve-add-example run-tbz-example run-tbnz-example run-bl-ret-example run-adr-example run-adrp-example run-ldur-example run-ldur32-example run-ldursw-example run-ldur-neg-example run-ldur-neg-oob-example run-ldp-example run-ldp32-example run-ldrb-example run-ldrh-example run-ldrsb-example run-ldrsh-example run-ldurb-example run-ldurh-example run-ldursb-example run-ldursh-example run-ldurb-neg-example run-ldurh-neg-example run-ldurb-neg-oob-example run-ldurh-neg-oob-example run-postidx-str64-example run-preidx-ldr64-example run-postidx-str32-example run-preidx-ldr32-example run-postidx-strb-example run-preidx-ldrb-example run-postidx-strh-example run-preidx-ldrh-example run-postidx-ldrsb-example run-postidx-ldrsh-example run-postidx-ldrsw-example run-pair-post-store-pre-load64-example run-pair-pre-store-post-load64-example run-pair-post-store-pre-load32-example run-pair-pre-store-post-load32-example run-ldxr-stxr64-example run-stxr64-fail-example run-ldxr-stxr32-example run-ldxrb-stxrb-example run-stxrb-fail-example run-ldaxrb-stlxrb-example run-stlxrb-fail-example run-ldxrh-stxrh-example run-stxrh-fail-example run-ldaxr-stlxr64-example run-stlxr64-fail-example run-ldar-stlr64-example run-ldar-stlr32-example run-swp64-example run-ldadd64-example run-ldclr64-example run-ldeor64-example run-ldset64-example run-ldaddb-wrap-example run-ldsmax32-sign-example run-ldsmin32-sign-example run-ldumax32-example run-ldumin32-example run-ldsmaxb-al-example run-ldsminh-a-example run-ldumax64-l-example run-lduminb-al-example run-stadd64-alias-example run-stclrh-alias-example run-steorb-alias-example run-stset32-alias-example run-swp64-alias-example run-ldadd64-oob-example run-cas64-success-example run-cas64-fail-example run-cas32-rtx0-example run-casb-success-example run-caslb-fail-example run-casah-success-example run-casa64-success-example run-casl64-fail-example run-casal32-rtx0-example run-casp64-success-example run-casp64-fail-example run-caspal64-success-example run-caspa32-success-example run-cas64-rszr-success-example run-cas64-rszr-fail-example run-cas64-rtzr-success-example run-cas64-rszr-oob-example run-casb-rszr-success-example run-caslb-rszr-fail-example run-casah-rtzr-success-example run-casal32-rtzr-success-example run-cas32-rszr-success-example run-casah-rszr-oob-example run-spill-ldxr-stxr64-example run-spill-stxr64-fail-example run-spill-ldaxr-stlxr64-example run-spill-stlxr64-fail-example run-spill-ldar-stlr64-example run-spill-ldar-stlr32-example run-spill-swp64-example run-spill-ldadd64-example run-spill-cas64-success-example run-spill-cas64-fail-example run-spill-casp64-success-example run-spill-casp64-fail-example stress-spill-atomics
 .PHONY: run-ret-x1-example run-ret-midblock-example run-ret-xzr-example run-br-example run-br-midblock-example run-br-xzr-example run-blr-ret-example run-blr-xzr-example run-bl-ret-nested-example run-lr-overflow-example run-dispatch-version-miss-example run-dispatch-version-miss-midblock-example run-dispatch-slot-invalidate-midblock-example run-dispatch-slot-invalidate-all-example run-dispatch-version-miss-cli-example run-dispatch-slot-invalidate-cli-example run-debug-exit-example runtime-api-demo run-runtime-api-demo
@@ -34,17 +36,20 @@ KSHOT_APK_PATH ?= /home/stolpee/Android/kingshot_xapk/config.arm64_v8a.apk
 .PHONY: run-spill-casa64-success-sp-base-example run-spill-casl64-fail-sp-base-example run-spill-casal32-rtx0-sp-base-example run-spill-casb-success-sp-base-example run-spill-caslb-fail-sp-base-example run-spill-casah-success-sp-base-example
 .PHONY: run-unsupported-log-example run-unsupported-unreached-example run-elf-symbol-example run-elf-branch-trampoline-example run-elf-import-stub-example run-elf-import-callback-example run-elf-import-trace-example run-elf-import-preset-example run-import-callback-retx1-example run-import-callback-add-example run-import-callback-sp-example run-import-callback-alloc-example run-import-callback-free-example run-import-callback-alloc-free-example run-import-callback-calloc-example run-import-callback-calloc-zero-example run-import-callback-realloc-example run-import-callback-realloc-null-example run-import-callback-memcpy-example run-import-callback-memset-example run-import-callback-memcmp-eq-example run-import-callback-memcmp-ne-example run-import-callback-memmove-example run-import-callback-strnlen-example run-import-callback-strnlen-max-example run-import-callback-strlen-example run-import-callback-strcmp-eq-example run-import-callback-strcmp-ne-example run-import-callback-strncmp-eq-prefix-example run-import-callback-strncmp-ne-example run-import-callback-strcpy-example run-import-callback-strncpy-pad-example run-import-callback-strchr-hit-example run-import-callback-strchr-miss-example run-import-callback-strchr-nul-example run-import-callback-strrchr-hit-example run-import-callback-strrchr-miss-example run-import-callback-strstr-hit-example run-import-callback-strstr-miss-example run-import-callback-strstr-empty-needle-example run-import-callback-memchr-hit-example run-import-callback-memchr-miss-example run-import-callback-memchr-limit-example run-import-callback-memrchr-hit-example run-import-callback-memrchr-miss-example run-import-callback-atoi-example run-import-callback-atoi-neg-example run-import-callback-strtol-base0-example run-import-callback-strtol-base16-example run-import-callback-strtol-invalid-base-example run-import-callback-retneg1-example run-import-callback-strtoul-example run-import-callback-posix-memalign-example run-import-callback-posix-memalign-einval-example run-import-callback-basename-example run-import-callback-strdup-example run-import-callback-strtof-example run-import-callback-snprintf-mixed-example run-import-callback-snprintf-trunc-example run-import-callback-snprintf-widthprec-example run-import-callback-snprintf-starwidth-example run-import-callback-snprintf-float-n-example run-import-callback-snprintf-stack-varargs-example run-import-callback-vsnprintf-example run-import-callback-vsnprintf-chk-example run-import-callback-vfprintf-example run-import-callback-vasprintf-example run-import-callback-vsscanf-example run-import-callback-snprintf-inf-example run-import-callback-snprintf-trunc-edge-example run-import-callback-strtod-example run-import-callback-strtod-nan-example run-import-callback-sscanf-example run-import-callback-sscanf-float-n-scanset-example run-import-callback-sscanf-stack-varargs-example run-import-callback-sscanf-scanset-invert-example run-kingshot-import-profile run-kingshot-import-profile-all run-kingshot-smoke run-kingshot-smoke-matrix run-nativebridge-skeleton-build run-nativebridge-skeleton-demo
 .PHONY: run-kingshot-import-profile-strict run-kingshot-import-profile-all-strict run-kingshot-coverage-gate verify-kingshot run-nativebridge-skeleton-jni-probe run-kingshot-smoke-matrix-ci
+.PHONY: run-kingshot-import-profile-compat run-kingshot-import-profile-all-compat verify-kingshot-ci
+.PHONY: run-import-callback-pow-example run-import-callback-sqrt-example run-import-callback-cos-example run-import-callback-tan-example
+.PHONY: run-import-callback-islower-example run-import-callback-isspace-example run-import-callback-isxdigit-example run-import-callback-isupper-example run-import-callback-toupper-example run-import-callback-tolower-example
 
 all: tiny_dbt
 
 tiny_dbt: tiny_dbt.c tiny_dbt_runtime.o tiny_dbt_runtime.h
-	$(CC) $(CFLAGS) -o $@ tiny_dbt.c tiny_dbt_runtime.o
+	$(CC) $(CFLAGS) -o $@ tiny_dbt.c tiny_dbt_runtime.o $(LDLIBS)
 
 tiny_dbt_runtime.o: tiny_dbt_runtime.c tiny_dbt_runtime.h tiny_dbt_runtime_emit.inc.c tiny_dbt_runtime_helpers.inc.c tiny_dbt_runtime_decode.inc.c tiny_dbt_runtime_api.inc.c
 	$(CC) $(CFLAGS) -DTINY_DBT_NO_MAIN -c -o $@ tiny_dbt_runtime.c
 
 runtime_api_demo: runtime_api_demo.c tiny_dbt_runtime.o tiny_dbt_runtime.h
-	$(CC) $(CFLAGS) -o $@ runtime_api_demo.c tiny_dbt_runtime.o
+	$(CC) $(CFLAGS) -o $@ runtime_api_demo.c tiny_dbt_runtime.o $(LDLIBS)
 
 opcode_inventory_tool: scripts/opcode_inventory.c
 	$(CC) $(CFLAGS) -O3 -o scripts/opcode_inventory_tool scripts/opcode_inventory.c
@@ -816,6 +821,36 @@ run-import-callback-strdup-example: tiny_dbt
 run-import-callback-strtof-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x90 --mem-write 0x20:332E3578797A00 --mem-read 0x90:8 D454AE20 D65F03C0
 
+run-import-callback-pow-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x4000000000000000 --set-reg x1=0x4000000000000000 D454AE40 D65F03C0
+
+run-import-callback-sqrt-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x4022000000000000 D454AE60 D65F03C0
+
+run-import-callback-cos-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454AE80 D65F03C0
+
+run-import-callback-tan-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x0 D454AEA0 D65F03C0
+
+run-import-callback-islower-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x61 D454AEC0 D65F03C0
+
+run-import-callback-isspace-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x20 D454AEE0 D65F03C0
+
+run-import-callback-isxdigit-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x66 D454AF00 D65F03C0
+
+run-import-callback-isupper-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x41 D454AF20 D65F03C0
+
+run-import-callback-toupper-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x61 D454AF40 D65F03C0
+
+run-import-callback-tolower-example: tiny_dbt
+	./tiny_dbt --set-reg x0=0x41 D454AF60 D65F03C0
+
 run-import-callback-snprintf-mixed-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x40 --set-reg x1=32 --set-reg x2=0x20 --set-reg x3=0x30 --set-reg x4=1337 --mem-write 0x20:25732D257500 --mem-write 0x30:666F6F00 --mem-read 0x40:16 D454ACA0 D65F03C0
 
@@ -874,28 +909,34 @@ run-import-callback-sscanf-scanset-invert-example: tiny_dbt
 	./tiny_dbt --set-reg x0=0x20 --set-reg x1=0x80 --set-reg x2=0x240 --set-reg x3=0x260 --mem-write 0x20:414243313233212A00 --mem-write 0x80:255B5E302D395D256E00 --mem-read 0x240:10 --mem-read 0x260:4 D454ACE0 D65F03C0
 
 run-kingshot-import-profile:
-	./scripts/generate_kingshot_import_profile.sh $(KSHOT_APK_PATH)
+	./scripts/generate_kingshot_import_profile.sh $(KSHOT_APK_PATH) lib/arm64-v8a/libmain.so $(KSHOT_PROFILE_MODE)
 
 run-kingshot-import-profile-strict:
 	./scripts/generate_kingshot_import_profile.sh $(KSHOT_APK_PATH) lib/arm64-v8a/libmain.so strict
 
+run-kingshot-import-profile-compat:
+	./scripts/generate_kingshot_import_profile.sh $(KSHOT_APK_PATH) lib/arm64-v8a/libmain.so compat
+
 run-kingshot-import-profile-all:
-	./scripts/generate_kingshot_all_import_profiles.sh $(KSHOT_APK_PATH)
+	./scripts/generate_kingshot_all_import_profiles.sh $(KSHOT_APK_PATH) $(KSHOT_PROFILE_MODE)
 
 run-kingshot-import-profile-all-strict:
 	./scripts/generate_kingshot_all_import_profiles.sh $(KSHOT_APK_PATH) strict
+
+run-kingshot-import-profile-all-compat:
+	./scripts/generate_kingshot_all_import_profiles.sh $(KSHOT_APK_PATH) compat
 
 run-kingshot-coverage-gate:
 	./scripts/check_kingshot_coverage.sh
 
 run-kingshot-smoke: tiny_dbt
-	./scripts/run_kingshot_smoke.sh $(KSHOT_APK_PATH)
+	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) ./scripts/run_kingshot_smoke.sh $(KSHOT_APK_PATH)
 
 run-kingshot-smoke-matrix: tiny_dbt
-	./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH)
+	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) ./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH)
 
 run-kingshot-smoke-matrix-ci: tiny_dbt
-	SMOKE_FAIL_ON_ERROR=1 ./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH) 5 1 1
+	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) SMOKE_FAIL_ON_ERROR=1 ./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH) 5 1 1
 
 run-nativebridge-skeleton-build:
 	$(MAKE) -C nativebridge_skeleton
@@ -914,11 +955,25 @@ verify-kingshot: tiny_dbt
 	$(MAKE) run-import-callback-basename-example
 	$(MAKE) run-import-callback-strdup-example
 	$(MAKE) run-import-callback-strtof-example
+	$(MAKE) run-import-callback-pow-example
+	$(MAKE) run-import-callback-sqrt-example
+	$(MAKE) run-import-callback-cos-example
+	$(MAKE) run-import-callback-tan-example
+	$(MAKE) run-import-callback-islower-example
+	$(MAKE) run-import-callback-isspace-example
+	$(MAKE) run-import-callback-isxdigit-example
+	$(MAKE) run-import-callback-isupper-example
+	$(MAKE) run-import-callback-toupper-example
+	$(MAKE) run-import-callback-tolower-example
 	$(MAKE) run-import-callback-strtoul-example
 	$(MAKE) run-import-callback-posix-memalign-example
 	$(MAKE) run-kingshot-import-profile-all
 	./scripts/check_kingshot_coverage.sh
-	./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH) 10 2 2
+	KSHOT_PROFILE_MODE=$(KSHOT_PROFILE_MODE) ./scripts/run_kingshot_smoke_matrix.sh $(KSHOT_APK_PATH) 10 2 2
+
+verify-kingshot-ci: tiny_dbt
+	$(MAKE) verify-kingshot
+	$(MAKE) run-kingshot-smoke-matrix-ci
 
 run-orrreg64-zr-alias-example: tiny_dbt
 	./tiny_dbt D2800541 AA0103E0 D65F03C0

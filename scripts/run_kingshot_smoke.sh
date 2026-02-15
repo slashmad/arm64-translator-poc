@@ -9,6 +9,7 @@ MAX_RETRIES=${4:-}
 PROFILE_DIR="$ROOT_DIR/profiles"
 REPORT_DIR="$ROOT_DIR/reports"
 DEBUG_EXIT=${TINY_DBT_SMOKE_DEBUG_EXIT:-1}
+PROFILE_MODE=${KSHOT_PROFILE_MODE:-relaxed}
 
 choose_symbol() {
     readelf --wide -Ws "$1" | awk '
@@ -65,7 +66,7 @@ TRACE_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_import_trace_smoke.txt"
 UNSUPPORTED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unsupported_smoke.txt"
 
 if [ ! -f "$CALLBACK_FILE" ] || [ ! -f "$STUB_FILE" ]; then
-    "$ROOT_DIR/scripts/generate_kingshot_import_profile.sh" "$APK_PATH" "$LIB_ENTRY" >/dev/null
+    "$ROOT_DIR/scripts/generate_kingshot_import_profile.sh" "$APK_PATH" "$LIB_ENTRY" "$PROFILE_MODE" >/dev/null
 fi
 
 TMP_LIB=$(mktemp /tmp/kingshot_smoke_lib.XXXXXX.so)
@@ -142,6 +143,7 @@ echo "Kingshot smoke run completed:"
 echo "  status:      $status"
 echo "  lib:         $LIB_ENTRY"
 echo "  symbol:      $SYMBOL"
+echo "  mode:        $PROFILE_MODE"
 echo "  exit_reason: $exit_reason"
 echo "  trace:       $TRACE_FILE ($trace_count lines)"
 echo "  unsupported: $UNSUPPORTED_FILE ($unsupported_count lines)"

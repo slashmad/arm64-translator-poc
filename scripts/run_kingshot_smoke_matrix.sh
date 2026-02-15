@@ -12,6 +12,7 @@ EXIT_REASON_SUMMARY_FILE="$REPORT_DIR/kingshot_smoke_matrix_exit_reason_summary.
 ALL_PROFILE_SUMMARY="$REPORT_DIR/kingshot_all_import_profiles_summary.txt"
 SMOKE_MAX_RETRIES=${SMOKE_MAX_RETRIES:-}
 SMOKE_FAIL_ON_ERROR=${SMOKE_FAIL_ON_ERROR:-0}
+PROFILE_MODE=${KSHOT_PROFILE_MODE:-relaxed}
 
 if [ ! -x "$ROOT_DIR/tiny_dbt" ]; then
     echo "tiny_dbt not built. Run: make" >&2
@@ -75,8 +76,8 @@ case "$SMOKE_FAIL_ON_ERROR" in
         ;;
 esac
 
-if [ ! -f "$ALL_PROFILE_SUMMARY" ]; then
-    "$ROOT_DIR/scripts/generate_kingshot_all_import_profiles.sh" "$APK_PATH" >/dev/null
+if [ ! -f "$ALL_PROFILE_SUMMARY" ] || ! grep -q "^# Mode: $PROFILE_MODE$" "$ALL_PROFILE_SUMMARY"; then
+    "$ROOT_DIR/scripts/generate_kingshot_all_import_profiles.sh" "$APK_PATH" "$PROFILE_MODE" >/dev/null
 fi
 
 TMP_LIBS=$(mktemp /tmp/kingshot_smoke_matrix_libs.XXXXXX.txt)
@@ -99,7 +100,7 @@ fi
 : > "$SUMMARY_FILE"
 echo "# Kingshot smoke matrix summary" >> "$SUMMARY_FILE"
 echo "# APK: $APK_PATH" >> "$SUMMARY_FILE"
-echo "# Params: max_libs=$MAX_LIBS syms_per_lib=$SYMS_PER_LIB attempts=$ATTEMPTS smoke_max_retries=${SMOKE_MAX_RETRIES:-auto} smoke_fail_on_error=$SMOKE_FAIL_ON_ERROR" >> "$SUMMARY_FILE"
+echo "# Params: mode=$PROFILE_MODE max_libs=$MAX_LIBS syms_per_lib=$SYMS_PER_LIB attempts=$ATTEMPTS smoke_max_retries=${SMOKE_MAX_RETRIES:-auto} smoke_fail_on_error=$SMOKE_FAIL_ON_ERROR" >> "$SUMMARY_FILE"
 echo "# Columns: status lib symbol attempts tiny_rc exit_reason trace_lines unsupported_lines log_file" >> "$SUMMARY_FILE"
 
 ok_count=0

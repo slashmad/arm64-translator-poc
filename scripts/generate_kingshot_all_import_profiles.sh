@@ -37,10 +37,10 @@ if [ ! -f "$APK_PATH" ]; then
     exit 1
 fi
 case "$PROFILE_MODE" in
-    relaxed|strict)
+    relaxed|strict|compat)
         ;;
     *)
-        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict)" >&2
+        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict|compat)" >&2
         exit 1
         ;;
 esac

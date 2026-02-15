@@ -15,16 +15,20 @@ ARGS_FILE="$PROFILE_DIR/kingshot_${LIB_NAME}_import_args.txt"
 UNMAPPED_FILE="$REPORT_DIR/kingshot_${LIB_NAME}_unmapped_imports.txt"
 
 case "$PROFILE_MODE" in
-    relaxed|strict)
+    relaxed|strict|compat)
         ;;
     *)
-        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict)" >&2
+        echo "Invalid profile mode: $PROFILE_MODE (expected relaxed|strict|compat)" >&2
         exit 1
         ;;
 esac
 
 is_strict_mode() {
     [ "$PROFILE_MODE" = "strict" ]
+}
+
+is_compat_mode() {
+    [ "$PROFILE_MODE" = "compat" ]
 }
 
 map_callback() {
@@ -53,6 +57,16 @@ map_callback() {
         strtoul|strtoull) echo guest_strtoul_x0_x1_x2 ;;
         strtod) echo guest_strtod_x0_x1 ;;
         strtof) echo guest_strtof_x0_x1 ;;
+        pow) echo guest_pow_x0_x1 ;;
+        sqrt) echo guest_sqrt_x0 ;;
+        cos) echo guest_cos_x0 ;;
+        tan) echo guest_tan_x0 ;;
+        islower) echo guest_islower_x0 ;;
+        isspace) echo guest_isspace_x0 ;;
+        isxdigit) echo guest_isxdigit_x0 ;;
+        isupper) echo guest_isupper_x0 ;;
+        toupper) echo guest_toupper_x0 ;;
+        tolower) echo guest_tolower_x0 ;;
         basename) echo guest_basename_x0 ;;
         strdup) echo guest_strdup_x0 ;;
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
@@ -64,6 +78,19 @@ map_callback() {
         pthread_mutex_init|pthread_mutex_destroy|sigemptyset) echo ret_0 ;;
         bind|connect|getsockname|sendto|socket|poll|select) echo ret_neg1 ;;
         mkdir|prctl|uname) echo ret_0 ;;
+        dup2|fork|execve|execl|pipe|eventfd|accept) echo ret_neg1 ;;
+        fileno|getppid|rand|clock) echo ret_1 ;;
+        getaddrinfo|ioctl|lstat|rename|unlink|access|chmod|nanosleep|usleep|sleep|kill|sigprocmask|sigaltstack) echo ret_neg1 ;;
+        gethostbyname|inet_ntoa|inet_addr|strerror|realpath) echo ret_0 ;;
+        localtime_r) echo ret_x1 ;;
+        pthread_cond_destroy|pthread_cond_signal|pthread_cond_timedwait|pthread_equal) echo ret_0 ;;
+        sigaddset|sigfillset|signal|sigsetjmp) echo ret_0 ;;
+        strerror_r|strftime|wcrtomb|mbrtowc|mbrlen|mbsnrtowcs|mbsrtowcs|mbtowc) echo ret_1 ;;
+        __ctype_get_mb_cur_max) echo ret_1 ;;
+        wmemcpy|wmemmove|wmemset|strcat|strtok|strcoll|strcasecmp|strxfrm|wcscoll|wcsxfrm|wcsnrtombs) echo ret_x0 ;;
+        wcslen) echo ret_0 ;;
+        popen|newlocale|uselocale) echo ret_sp ;;
+        freelocale|puts|fputs|rewind) echo ret_0 ;;
         sscanf) echo guest_sscanf_x0_x1_x2 ;;
         vsscanf) echo guest_vsscanf_x0_x1_x2 ;;
         fprintf|sprintf|syslog|openlog|closelog|stat|fstat|sigaction|dl_iterate_phdr|abort|dladdr|android_set_abort_message|closedir|ferror|ftell)
@@ -111,7 +138,17 @@ map_callback() {
         dlopen) echo nonnull_x0 ;;
         dlsym) echo ret_sp ;;
         dlerror|__android_log_print|__android_log_assert|__android_log_write|__android_log_vprint) echo ret_x0 ;;
-        *) return 1 ;;
+        *)
+            if is_compat_mode; then
+                case "$1" in
+                    is*|to*|str*|wcs*|wmem*|mb*|mbr*|wc*|pthread_*|sig*|clock*|time*|get*|set*|open*|close*|read*|write*)
+                        echo ret_0
+                        return 0
+                        ;;
+                esac
+            fi
+            return 1
+            ;;
     esac
 }
 

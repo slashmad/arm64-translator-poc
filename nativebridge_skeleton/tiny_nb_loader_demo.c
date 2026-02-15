@@ -1,15 +1,18 @@
 #include "tiny_nativebridge_stub.h"
 
 #include <dlfcn.h>
+#include <math.h>
 #include <stdio.h>
 
 typedef const TinyNativeBridgeCallbacks *(*GetCallbacksFn)(void);
+typedef double (*CosFn)(double);
 
 int main(int argc, char **argv) {
     const char *bridge_path = "./libtiny_nativebridge_stub.so";
     void *bridge_handle = NULL;
     void *libm_handle = NULL;
     void *cos_sym = NULL;
+    CosFn cos_fn = NULL;
     GetCallbacksFn get_callbacks = NULL;
     const TinyNativeBridgeCallbacks *cb = NULL;
 
@@ -64,8 +67,19 @@ int main(int argc, char **argv) {
         dlclose(bridge_handle);
         return 1;
     }
+    cos_fn = (CosFn)cos_sym;
+    {
+        double y = cos_fn(0.0);
+        double delta = fabs(y - 1.0);
+        if (delta > 1e-12) {
+            fprintf(stderr, "trampoline call mismatch: cos(0)=%.17g (delta=%.17g)\n", y, delta);
+            dlclose(libm_handle);
+            dlclose(bridge_handle);
+            return 1;
+        }
+    }
 
-    printf("Bridge smoke OK: loaded libm + resolved cos\n");
+    printf("Bridge smoke OK: loaded libm + resolved/called cos\n");
 
     dlclose(libm_handle);
     if (cb->terminate) {

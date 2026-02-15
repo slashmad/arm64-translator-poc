@@ -33,6 +33,12 @@ jobs:
           make run-import-callback-basename-example
           make run-import-callback-strdup-example
           make run-import-callback-strtof-example
+          make run-import-callback-pow-example
+          make run-import-callback-sqrt-example
+          make run-import-callback-cos-example
+          make run-import-callback-islower-example
+          make run-import-callback-isspace-example
+          make run-import-callback-isxdigit-example
           make run-import-callback-vsnprintf-chk-example
           make run-import-callback-vfprintf-example
           make run-import-callback-vasprintf-example
@@ -43,9 +49,19 @@ jobs:
         run: |
           APK_PATH="${INPUT_APK_PATH}"
           if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
-            KSHOT_APK_PATH="$APK_PATH" make run-kingshot-import-profile-all
+            KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH="$APK_PATH" make run-kingshot-import-profile-all
             make run-kingshot-coverage-gate
-            KSHOT_APK_PATH="$APK_PATH" make run-kingshot-smoke-matrix-ci
+            KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH="$APK_PATH" make run-kingshot-smoke-matrix-ci
           else
             echo "Skipping Kingshot verification (no valid workflow input 'kingshot_apk_path')."
           fi
+
+      - name: Upload Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: translator-reports
+          path: |
+            reports/**
+            profiles/**
+          if-no-files-found: ignore

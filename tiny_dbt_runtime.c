@@ -2,8 +2,10 @@
 
 #include <errno.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -121,7 +123,17 @@ enum {
     IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E,
     IMPORT_CB_GUEST_BASENAME_X0 = 0x6F,
     IMPORT_CB_GUEST_STRDUP_X0 = 0x70,
-    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71
+    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71,
+    IMPORT_CB_GUEST_POW_X0_X1 = 0x72,
+    IMPORT_CB_GUEST_SQRT_X0 = 0x73,
+    IMPORT_CB_GUEST_COS_X0 = 0x74,
+    IMPORT_CB_GUEST_TAN_X0 = 0x75,
+    IMPORT_CB_GUEST_ISLOWER_X0 = 0x76,
+    IMPORT_CB_GUEST_ISSPACE_X0 = 0x77,
+    IMPORT_CB_GUEST_ISXDIGIT_X0 = 0x78,
+    IMPORT_CB_GUEST_ISUPPER_X0 = 0x79,
+    IMPORT_CB_GUEST_TOUPPER_X0 = 0x7A,
+    IMPORT_CB_GUEST_TOLOWER_X0 = 0x7B
 };
 
 struct TinyDbt {
@@ -236,6 +248,8 @@ static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLengt
 static bool guest_sscanf_store_unsigned(uint8_t *mem, uint64_t addr, GuestFmtLength len, uint64_t value);
 static bool guest_sscanf_store_float(uint8_t *mem, uint64_t addr, GuestFmtLength len, double value);
 static uint64_t guest_sscanf_scan(uint8_t *mem, uint64_t input_addr, uint64_t fmt_addr, const CPUState *state);
+static double guest_fp_arg_f64(const CPUState *state, unsigned idx);
+static uint64_t guest_fp_ret_f64(CPUState *state, double value);
 
 /*
  * Current runtime guest memory pointer used by host import callbacks.
@@ -1172,6 +1186,37 @@ static bool guest_parse_strtod(const uint8_t *mem, uint64_t addr, double *out_va
     *out_value = value;
     *out_end = addr + (uint64_t)(end_ptr - tmp);
     return true;
+}
+
+static double guest_fp_arg_f64(const CPUState *state, unsigned idx) {
+    uint64_t bits = 0;
+    double value = 0.0;
+
+    if (!state || idx >= 32u) {
+        return 0.0;
+    }
+
+    /*
+     * Prefer FP register payload (AArch64 ABI), but fall back to xN bits for
+     * PoC-style synthetic tests that pass raw payload through x regs.
+     */
+    bits = state->v[idx][0];
+    if (bits == 0 && idx < 31u) {
+        bits = state->x[idx];
+    }
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static uint64_t guest_fp_ret_f64(CPUState *state, double value) {
+    uint64_t bits = 0;
+
+    memcpy(&bits, &value, sizeof(bits));
+    if (state) {
+        state->v[0][0] = bits;
+        state->v[0][1] = 0;
+    }
+    return bits;
 }
 
 static bool guest_sscanf_store_signed(uint8_t *mem, uint64_t addr, GuestFmtLength len, int64_t value) {
@@ -2150,6 +2195,47 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             state->v[0][0] = (uint64_t)bits32;
             state->v[0][1] = 0;
             return (uint64_t)bits32;
+        }
+        case IMPORT_CB_GUEST_POW_X0_X1: {
+            double a = guest_fp_arg_f64(state, 0u);
+            double b = guest_fp_arg_f64(state, 1u);
+            return guest_fp_ret_f64(state, pow(a, b));
+        }
+        case IMPORT_CB_GUEST_SQRT_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, sqrt(a));
+        }
+        case IMPORT_CB_GUEST_COS_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, cos(a));
+        }
+        case IMPORT_CB_GUEST_TAN_X0: {
+            double a = guest_fp_arg_f64(state, 0u);
+            return guest_fp_ret_f64(state, tan(a));
+        }
+        case IMPORT_CB_GUEST_ISLOWER_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(islower(ch) ? 1 : 0);
+        }
+        case IMPORT_CB_GUEST_ISSPACE_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(isspace(ch) ? 1 : 0);
+        }
+        case IMPORT_CB_GUEST_ISXDIGIT_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(isxdigit(ch) ? 1 : 0);
+        }
+        case IMPORT_CB_GUEST_ISUPPER_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(isupper(ch) ? 1 : 0);
+        }
+        case IMPORT_CB_GUEST_TOUPPER_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(unsigned char)toupper(ch);
+        }
+        case IMPORT_CB_GUEST_TOLOWER_X0: {
+            int ch = (int)(state->x[0] & 0xFFu);
+            return (uint64_t)(unsigned char)tolower(ch);
         }
         case IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2:
             if (!g_tiny_dbt_current_guest_mem) {

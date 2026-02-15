@@ -61,8 +61,8 @@ Run from ELF symbol:
 - `--elf-file <path> --elf-symbol <name>`: extract and run one symbol from an AArch64 ELF.
 - `--elf-size <bytes>`: override symbol size when ELF reports size `0`.
 - `--elf-import-stub <symbol=value>`: force specific PLT imports to return a fixed `X0` value.
-- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_0`, `ret_1`, `ret_neg1`, `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_strtoul_x0_x1_x2`, `guest_posix_memalign_x0_x1_x2`, `guest_basename_x0`, `guest_strdup_x0`, `guest_strtof_x0_x1`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`, `guest_vsnprintf_x0_x1_x2_x3`, `guest_vsscanf_x0_x1_x2`, `guest_vsnprintf_chk_x0_x1_x4_x5`, `guest_vfprintf_x0_x1_x2`, `guest_vasprintf_x0_x1_x2`).
-- `--elf-import-preset <name>`: apply built-in callback sets (`libc-basic`, `android-basic`).
+- `--elf-import-callback <symbol=op>`: map PLT imports to callback ops (`ret_0`, `ret_1`, `ret_neg1`, `ret_x0..ret_x7`, `add_x0_x1`, `sub_x0_x1`, `ret_sp`, `nonnull_x0`, `guest_alloc_x0`, `guest_free_x0`, `guest_calloc_x0_x1`, `guest_realloc_x0_x1`, `guest_memcpy_x0_x1_x2`, `guest_memset_x0_x1_x2`, `guest_memcmp_x0_x1_x2`, `guest_memmove_x0_x1_x2`, `guest_strnlen_x0_x1`, `guest_strlen_x0`, `guest_strcmp_x0_x1`, `guest_strncmp_x0_x1_x2`, `guest_strcpy_x0_x1`, `guest_strncpy_x0_x1_x2`, `guest_strchr_x0_x1`, `guest_strrchr_x0_x1`, `guest_strstr_x0_x1`, `guest_memchr_x0_x1_x2`, `guest_memrchr_x0_x1_x2`, `guest_atoi_x0`, `guest_strtol_x0_x1_x2`, `guest_strtoul_x0_x1_x2`, `guest_posix_memalign_x0_x1_x2`, `guest_basename_x0`, `guest_strdup_x0`, `guest_strtof_x0_x1`, `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, `guest_tan_x0`, `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, `guest_tolower_x0`, `guest_snprintf_x0_x1_x2`, `guest_strtod_x0_x1`, `guest_sscanf_x0_x1_x2`, `guest_vsnprintf_x0_x1_x2_x3`, `guest_vsscanf_x0_x1_x2`, `guest_vsnprintf_chk_x0_x1_x4_x5`, `guest_vfprintf_x0_x1_x2`, `guest_vasprintf_x0_x1_x2`).
+- `--elf-import-preset <name>`: apply built-in callback sets (`libc-basic`, `android-basic`, `android-compat`).
 - `--elf-import-trace <path>`: append per-symbol import patch details for ELF branch rewrites.
 - `--set-reg <name=value>`: initialize registers/state, including `heap_base`, `heap_brk`, `heap_last_ptr`, `heap_last_size`.
 - `--trace-state`: print compact state before/after run.
@@ -77,6 +77,7 @@ Environment alternatives:
 - `TINY_DBT_INVALIDATE_ALL_SLOTS`
 - `TINY_DBT_INVALIDATE_PC_INDEXES`
 - `SMOKE_FAIL_ON_ERROR` (for `scripts/run_kingshot_smoke_matrix.sh`)
+- `KSHOT_PROFILE_MODE` (`relaxed`, `strict`, `compat`) for smoke/profile scripts
 
 ## Runtime Notes
 
@@ -103,6 +104,8 @@ Environment alternatives:
 - `guest_vasprintf_x0_x1_x2` allocates from guest heap, writes pointer to `*x0`, and returns formatted length (or `-1` on failure).
 - `guest_strtoul_x0_x1_x2` and `guest_posix_memalign_x0_x1_x2` provide minimal unsigned parse and aligned guest-heap allocation hooks.
 - `guest_basename_x0`, `guest_strdup_x0`, and `guest_strtof_x0_x1` provide minimal path, duplicate-string, and float parse hooks.
+- `guest_pow_x0_x1`, `guest_sqrt_x0`, `guest_cos_x0`, and `guest_tan_x0` provide scalar FP math hooks.
+- `guest_islower_x0`, `guest_isspace_x0`, `guest_isxdigit_x0`, `guest_isupper_x0`, `guest_toupper_x0`, and `guest_tolower_x0` provide ctype hooks.
 - `guest_strtod_x0_x1` parses guest strings as `double`, writes `endptr`, and mirrors result bits to both `x0` and `d0` (`v0`).
 - `guest_sscanf_x0_x1_x2` provides a minimal parser for `%d/%i/%u/%x/%X/%o/%f/%e/%g/%c/%s/%[` and `%n` with output pointers in `x2..x7` and then guest stack.
 - Unmapped out-of-range branches use a default local return stub and are reported as `local-ret` in trace output.
@@ -177,6 +180,13 @@ make run-import-callback-posix-memalign-einval-example
 make run-import-callback-basename-example
 make run-import-callback-strdup-example
 make run-import-callback-strtof-example
+make run-import-callback-pow-example
+make run-import-callback-sqrt-example
+make run-import-callback-cos-example
+make run-import-callback-tan-example
+make run-import-callback-islower-example
+make run-import-callback-isspace-example
+make run-import-callback-isxdigit-example
 make run-import-callback-snprintf-mixed-example
 make run-import-callback-snprintf-trunc-example
 make run-import-callback-snprintf-widthprec-example
@@ -200,11 +210,13 @@ make run-kingshot-import-profile
 make run-kingshot-import-profile-strict
 make run-kingshot-import-profile-all
 make run-kingshot-import-profile-all-strict
+make run-kingshot-import-profile-all-compat
 make run-kingshot-coverage-gate
 make run-kingshot-smoke
 make run-kingshot-smoke-matrix
 make run-kingshot-smoke-matrix-ci
 make verify-kingshot
+make verify-kingshot-ci
 make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
 make run-nativebridge-skeleton-jni-probe
@@ -231,6 +243,7 @@ Generate strict profiles (no relaxed fallback stubs for many libc/pthread/syscal
 ```sh
 make run-kingshot-import-profile-strict
 make run-kingshot-import-profile-all-strict
+make run-kingshot-import-profile-all-compat
 ```
 
 Run the coverage regression gate (`reports/kingshot_all_import_coverage.txt` vs `kingshot_coverage_baseline.txt`):
@@ -291,6 +304,7 @@ You can override the APK path used by `make` targets with:
 
 ```sh
 KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-import-profile-all
+KSHOT_PROFILE_MODE=compat KSHOT_APK_PATH=/path/to/config.arm64_v8a.apk make run-kingshot-smoke-matrix-ci
 ```
 
 ## NativeBridge Skeleton
@@ -302,6 +316,8 @@ make run-nativebridge-skeleton-build
 make run-nativebridge-skeleton-demo
 make run-nativebridge-skeleton-jni-probe
 ```
+
+`run-nativebridge-skeleton-demo` now resolves and invokes a trampoline (`cos(0)`) through the callback table, while `run-nativebridge-skeleton-jni-probe` validates JNI-style runtime wiring.
 
 Skeleton files live under `nativebridge_skeleton/` and are intentionally minimal.
 
