@@ -118,7 +118,10 @@ enum {
     IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2 = 0x6B,
     IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C,
     IMPORT_CB_GUEST_STRTOUL_X0_X1_X2 = 0x6D,
-    IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E
+    IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E,
+    IMPORT_CB_GUEST_BASENAME_X0 = 0x6F,
+    IMPORT_CB_GUEST_STRDUP_X0 = 0x70,
+    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71
 };
 
 struct TinyDbt {
@@ -2066,6 +2069,87 @@ static uint64_t dbt_runtime_import_callback_dispatch(CPUState *state, uint64_t c
             }
             memcpy(g_tiny_dbt_current_guest_mem + (size_t)outptr_addr, &ptr, sizeof(ptr));
             return 0;
+        }
+        case IMPORT_CB_GUEST_BASENAME_X0: {
+            uint64_t path_addr = state->x[0];
+            bool terminated = false;
+            uint64_t len = 0;
+            uint64_t end = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || path_addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+            len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, path_addr, (uint64_t)GUEST_MEM_SIZE - path_addr,
+                                     &terminated);
+            if (!terminated) {
+                return 0;
+            }
+            if (len == 0) {
+                return path_addr;
+            }
+
+            end = path_addr + len - 1u;
+            while (end > path_addr && g_tiny_dbt_current_guest_mem[(size_t)end] == '/') {
+                end--;
+            }
+            if (end == path_addr && g_tiny_dbt_current_guest_mem[(size_t)end] == '/') {
+                return path_addr;
+            }
+            while (end > path_addr) {
+                if (g_tiny_dbt_current_guest_mem[(size_t)end] == '/') {
+                    return end + 1u;
+                }
+                end--;
+            }
+            return path_addr;
+        }
+        case IMPORT_CB_GUEST_STRDUP_X0: {
+            uint64_t src_addr = state->x[0];
+            bool terminated = false;
+            uint64_t len = 0;
+            uint64_t nbytes = 0;
+            uint64_t ptr = 0;
+            uint64_t size = 0;
+
+            if (!g_tiny_dbt_current_guest_mem || src_addr >= (uint64_t)GUEST_MEM_SIZE) {
+                return 0;
+            }
+
+            len = guest_strnlen_scan(g_tiny_dbt_current_guest_mem, src_addr, (uint64_t)GUEST_MEM_SIZE - src_addr,
+                                     &terminated);
+            if (!terminated || len == UINT64_MAX) {
+                return 0;
+            }
+            nbytes = len + 1u;
+            if (!guest_mem_range_valid(src_addr, nbytes) || !guest_heap_alloc(state, nbytes, &ptr, &size) ||
+                !guest_mem_range_valid(ptr, nbytes)) {
+                return 0;
+            }
+
+            (void)size;
+            memmove(g_tiny_dbt_current_guest_mem + (size_t)ptr, g_tiny_dbt_current_guest_mem + (size_t)src_addr,
+                    (size_t)nbytes);
+            return ptr;
+        }
+        case IMPORT_CB_GUEST_STRTOF_X0_X1: {
+            double value = 0.0;
+            float fvalue = 0.0f;
+            uint64_t end_addr = state->x[0];
+            uint64_t endptr_addr = state->x[1];
+            uint32_t bits32 = 0;
+
+            if (!g_tiny_dbt_current_guest_mem ||
+                !guest_parse_strtod(g_tiny_dbt_current_guest_mem, state->x[0], &value, &end_addr)) {
+                return 0;
+            }
+            if (endptr_addr != 0 && guest_mem_range_valid(endptr_addr, sizeof(uint64_t))) {
+                memcpy(g_tiny_dbt_current_guest_mem + (size_t)endptr_addr, &end_addr, sizeof(end_addr));
+            }
+            fvalue = (float)value;
+            memcpy(&bits32, &fvalue, sizeof(bits32));
+            state->v[0][0] = (uint64_t)bits32;
+            state->v[0][1] = 0;
+            return (uint64_t)bits32;
         }
         case IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2:
             if (!g_tiny_dbt_current_guest_mem) {

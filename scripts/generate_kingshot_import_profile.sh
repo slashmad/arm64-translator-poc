@@ -49,9 +49,12 @@ map_callback() {
         strrchr) echo guest_strrchr_x0_x1 ;;
         strstr) echo guest_strstr_x0_x1 ;;
         atoi) echo guest_atoi_x0 ;;
-        strtol) echo guest_strtol_x0_x1_x2 ;;
+        strtol|strtoll) echo guest_strtol_x0_x1_x2 ;;
         strtoul|strtoull) echo guest_strtoul_x0_x1_x2 ;;
         strtod) echo guest_strtod_x0_x1 ;;
+        strtof) echo guest_strtof_x0_x1 ;;
+        basename) echo guest_basename_x0 ;;
+        strdup) echo guest_strdup_x0 ;;
         snprintf) echo guest_snprintf_x0_x1_x2 ;;
         __vsnprintf_chk) echo guest_vsnprintf_chk_x0_x1_x4_x5 ;;
         vsnprintf) echo guest_vsnprintf_x0_x1_x2_x3 ;;

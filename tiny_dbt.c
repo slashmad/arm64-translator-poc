@@ -79,7 +79,10 @@ enum {
     IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2 = 0x6B,
     IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2 = 0x6C,
     IMPORT_CB_GUEST_STRTOUL_X0_X1_X2 = 0x6D,
-    IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E
+    IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2 = 0x6E,
+    IMPORT_CB_GUEST_BASENAME_X0 = 0x6F,
+    IMPORT_CB_GUEST_STRDUP_X0 = 0x70,
+    IMPORT_CB_GUEST_STRTOF_X0_X1 = 0x71
 };
 
 typedef struct {
@@ -340,6 +343,18 @@ static bool parse_elf_import_callback_kind(const char *kind, uint8_t *out_callba
         *out_callback_id = IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2;
         return true;
     }
+    if (strcmp(kind, "guest_basename_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_BASENAME_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_strdup_x0") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_STRDUP_X0;
+        return true;
+    }
+    if (strcmp(kind, "guest_strtof_x0_x1") == 0) {
+        *out_callback_id = IMPORT_CB_GUEST_STRTOF_X0_X1;
+        return true;
+    }
     if (strncmp(kind, "ret_x", 5) == 0 && kind[5] >= '0' && kind[5] <= '7' && kind[6] == '\0') {
         *out_callback_id = (uint8_t)(IMPORT_CB_RET_X0 + (uint8_t)(kind[5] - '0'));
         return true;
@@ -441,6 +456,12 @@ static const char *import_callback_kind_name(uint8_t callback_id) {
             return "guest_strtoul_x0_x1_x2";
         case IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2:
             return "guest_posix_memalign_x0_x1_x2";
+        case IMPORT_CB_GUEST_BASENAME_X0:
+            return "guest_basename_x0";
+        case IMPORT_CB_GUEST_STRDUP_X0:
+            return "guest_strdup_x0";
+        case IMPORT_CB_GUEST_STRTOF_X0_X1:
+            return "guest_strtof_x0_x1";
         default:
             return "unknown";
     }
@@ -610,12 +631,16 @@ static bool apply_elf_import_preset(CliOptions *opts, const char *preset) {
         {"snprintf", IMPORT_CB_GUEST_SNPRINTF_X0_X1_X2},
         {"__vsnprintf_chk", IMPORT_CB_GUEST_VSNPRINTF_CHK_X0_X1_X4_X5},
         {"strtod", IMPORT_CB_GUEST_STRTOD_X0_X1},
+        {"strtof", IMPORT_CB_GUEST_STRTOF_X0_X1},
         {"sscanf", IMPORT_CB_GUEST_SSCANF_X0_X1_X2},
         {"vsnprintf", IMPORT_CB_GUEST_VSNPRINTF_X0_X1_X2_X3},
         {"vsscanf", IMPORT_CB_GUEST_VSSCANF_X0_X1_X2},
         {"vfprintf", IMPORT_CB_GUEST_VFPRINTF_X0_X1_X2},
         {"vasprintf", IMPORT_CB_GUEST_VASPRINTF_X0_X1_X2},
         {"posix_memalign", IMPORT_CB_GUEST_POSIX_MEMALIGN_X0_X1_X2},
+        {"basename", IMPORT_CB_GUEST_BASENAME_X0},
+        {"strdup", IMPORT_CB_GUEST_STRDUP_X0},
+        {"strtoll", IMPORT_CB_GUEST_STRTOL_X0_X1_X2},
     };
     static const struct {
         const char *name;
@@ -2016,7 +2041,7 @@ static void print_usage(FILE *out, const char *prog) {
             "  --elf-symbol <name>             symbol name to extract from --elf-file\n"
             "  --elf-size <bytes>              override symbol byte size (required for size=0 symbols)\n"
             "  --elf-import-stub <sym=value>   return fixed X0 value when branching to PLT import symbol\n"
-            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
+            "  --elf-import-callback <sym=op>  host callback op (ret_0, ret_1, ret_neg1, ret_x0..ret_x7, add_x0_x1, sub_x0_x1, ret_sp, nonnull_x0, guest_alloc_x0, guest_free_x0, guest_calloc_x0_x1, guest_realloc_x0_x1, guest_memcpy_x0_x1_x2, guest_memset_x0_x1_x2, guest_memcmp_x0_x1_x2, guest_memmove_x0_x1_x2, guest_strnlen_x0_x1, guest_strlen_x0, guest_strcmp_x0_x1, guest_strncmp_x0_x1_x2, guest_strcpy_x0_x1, guest_strncpy_x0_x1_x2, guest_strchr_x0_x1, guest_strrchr_x0_x1, guest_strstr_x0_x1, guest_memchr_x0_x1_x2, guest_memrchr_x0_x1_x2, guest_atoi_x0, guest_strtol_x0_x1_x2, guest_strtoul_x0_x1_x2, guest_posix_memalign_x0_x1_x2, guest_basename_x0, guest_strdup_x0, guest_strtof_x0_x1, guest_snprintf_x0_x1_x2, guest_strtod_x0_x1, guest_sscanf_x0_x1_x2, guest_vsnprintf_x0_x1_x2_x3, guest_vsscanf_x0_x1_x2, guest_vsnprintf_chk_x0_x1_x4_x5, guest_vfprintf_x0_x1_x2, guest_vasprintf_x0_x1_x2)\n"
             "  --elf-import-preset <name>      apply built-in import preset (libc-basic, android-basic)\n"
             "  --elf-import-trace <path>       append per-symbol import patching summary\n"
             "  --pc-bytes <n>                  set initial state.pc before run\n"

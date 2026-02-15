@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      kingshot_apk_path:
+        description: "Optional absolute APK path on runner for Kingshot checks"
+        required: false
+        default: ""
+
+jobs:
+  build-and-regressions:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential binutils unzip
+
+      - name: Build
+        run: make tiny_dbt
+
+      - name: Callback Regressions
+        run: |
+          make run-import-callback-retneg1-example
+          make run-import-callback-strtoul-example
+          make run-import-callback-posix-memalign-example
+          make run-import-callback-basename-example
+          make run-import-callback-strdup-example
+          make run-import-callback-strtof-example
+          make run-import-callback-vsnprintf-chk-example
+          make run-import-callback-vfprintf-example
+          make run-import-callback-vasprintf-example
+
+      - name: Optional Kingshot Verification
+        env:
+          INPUT_APK_PATH: ${{ github.event.inputs.kingshot_apk_path }}
+        run: |
+          APK_PATH="${INPUT_APK_PATH}"
+          if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
+            ./scripts/generate_kingshot_all_import_profiles.sh "$APK_PATH"
+            ./scripts/check_kingshot_coverage.sh
+            SMOKE_FAIL_ON_ERROR=1 ./scripts/run_kingshot_smoke_matrix.sh "$APK_PATH" 5 1 1
+          else
+            echo "Skipping Kingshot verification (no valid workflow input 'kingshot_apk_path')."
+          fi
